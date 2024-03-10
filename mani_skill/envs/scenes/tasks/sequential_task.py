@@ -12,7 +12,7 @@ from mani_skill.envs.scenes.base_env import SceneManipulationEnv
 from mani_skill.sensors.camera import CameraConfig
 from mani_skill.utils.building.actors import build_sphere
 from mani_skill.utils.registration import register_env
-from mani_skill.utils.sapien_utils import look_at
+from mani_skill.utils import sapien_utils
 from mani_skill.utils.structs.actor import Actor
 from mani_skill.utils.structs.pose import Pose, vectorize_pose
 from mani_skill.utils.structs.types import Array, GPUMemoryConfig, SimConfig
@@ -55,12 +55,6 @@ class SequentialTaskEnv(SceneManipulationEnv):
 
     SUPPORTED_ROBOTS = ["fetch"]
     agent: Fetch
-    sim_cfg = SimConfig(
-        spacing=20,
-        gpu_memory_cfg=GPUMemoryConfig(
-            found_lost_pairs_capacity=2**25, max_rigid_patch_count=2**18
-        ),
-    )
 
     # TODO (arth): add locomotion, open fridge, close fridge
     # TODO (arth) maybe?: clean this up, e.g. configs per subtask **type** or smth
@@ -78,6 +72,17 @@ class SequentialTaskEnv(SceneManipulationEnv):
         pick=pick_cfg,
         place=place_cfg,
     )
+
+    @property
+    def _default_sim_cfg(self):
+        return SimConfig(
+            spacing=50,
+            gpu_memory_cfg=GPUMemoryConfig(
+                found_lost_pairs_capacity=2**25,
+                max_rigid_patch_count=2**19,
+                max_rigid_contact_count=2**21,
+            ),
+        )
 
     def __init__(
         self,
@@ -231,7 +236,8 @@ class SequentialTaskEnv(SceneManipulationEnv):
         return goal
 
     def _compute_ee_rest_world_pose(self):
-        return self.agent.base_link.pose * self.ee_rest_pos_wrt_base
+        with torch.device(self.device):
+            return self.agent.base_link.pose * self.ee_rest_pos_wrt_base
 
     # -------------------------------------------------------------------------------------------------
 
@@ -239,8 +245,11 @@ class SequentialTaskEnv(SceneManipulationEnv):
     # RESET/RECONFIGURE HANDLING
     # -------------------------------------------------------------------------------------------------
 
-    def _load_actors(self):
-        super()._load_actors()
+    def _load_scene(self):
+        super()._load_scene()
+        self.ee_rest_pos_wrt_base = Pose.create_from_pq(
+            p=self.EE_REST_POS_WRT_BASE, device=self.device
+        )
         self.process_task_plan()
         self.subtask_pointer = torch.zeros(
             self.num_envs, device=self.device, dtype=torch.long
@@ -253,7 +262,8 @@ class SequentialTaskEnv(SceneManipulationEnv):
             name="ee_rest_goal",
         )
 
-    def _initialize_task(self, env_idx: torch.Tensor):
+    def _initialize_episode(self, env_idx: torch.Tensor):
+        super()._initialize_episode(env_idx)
         # TODO (arth): currently there's a bug where prev contacts/etc will maintain themselves somehow
         #       maybe bug will be fixed alter, but in meantime just step scene to get rid of old contacts
         # if not sapien.physx.is_gpu_enabled():
@@ -264,7 +274,6 @@ class SequentialTaskEnv(SceneManipulationEnv):
         self.subtask_steps_left[env_idx] = self.task_cfgs[
             self.task_plan[0].type
         ].horizon
-        self.ee_rest_pos_wrt_base = Pose.create_from_pq(p=self.EE_REST_POS_WRT_BASE)
         self.ee_rest_world_pose = self._compute_ee_rest_world_pose()
 
         if physx.is_gpu_enabled():
@@ -487,11 +496,12 @@ class SequentialTaskEnv(SceneManipulationEnv):
     #       can get stuck in walls
     # -------------------------------------------------------------------------------------------------
 
-    def _register_sensors(self):
-        # for fetch, the only sensor used is the fetch head camera
+    @property
+    def _sensor_configs(self):
         return []
 
-    def _register_human_render_cameras(self):
+    @property
+    def _human_render_camera_configs(self):
         # # top-down camera (good for spawn generation vids)
         # room_camera_pose = look_at([0, 0, 12], [0, 0, 0])
         # room_camera_config = CameraConfig(
@@ -500,7 +510,7 @@ class SequentialTaskEnv(SceneManipulationEnv):
         # return room_camera_config
 
         # this camera follows the robot around (though might be in walls if the space is cramped)
-        robot_camera_pose = look_at([0, 0.5, 1], [0.5, -0.5, 0])
+        robot_camera_pose = sapien_utils.look_at([0, 0.5, 1], [0.5, -0.5, 0])
         robot_camera_config = CameraConfig(
             "render_camera",
             robot_camera_pose.p,
@@ -510,7 +520,7 @@ class SequentialTaskEnv(SceneManipulationEnv):
             2,
             0.01,
             10,
-            link=self.agent.torso_lift_link,
+            mount=self.agent.torso_lift_link,
         )
         return robot_camera_config
 

@@ -50,7 +50,6 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
 
     # TODO (arth): add locomotion, open fridge, close fridge
     # TODO (arth) maybe?: clean this up, e.g. configs per subtask **type** or smth
-    ee_rest_pos_wrt_base = Pose.create_from_pq(p=(0.5, 0, 1.25))
     pick_cfg = PickSubtaskConfig(
         horizon=200,
         ee_rest_thresh=0.05,
@@ -134,11 +133,8 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
 
         return torch.hstack([pts, rots.unsqueeze(-1)]), dists
 
-    def reconfigure(self):
+    def _after_reconfigure(self):
         with torch.device(self.device):
-            # run reconfiguration
-            super().reconfigure()
-
             self.scene_builder.initialize(torch.arange(self.num_envs))
 
             if physx.is_gpu_enabled():
@@ -249,9 +245,9 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
 
     # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-    def _initialize_actors(self, env_idx):
+    def _initialize_episode(self, env_idx):
         with torch.device(self.device):
-            super()._initialize_actors(env_idx)
+            super()._initialize_episode(env_idx)
             b = len(env_idx)
 
             xyz = torch.zeros((b, 3))
@@ -266,10 +262,8 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
             )
             self.subtask_objs[0].set_pose(Pose.create_from_pq(xyz, qs))
 
-    # TODO (arth): figure out rejection pipeline including arm/base randomization
-    #       tbh not sure how to do yet, might just increase collision thresholds in training
-    def _initialize_agent(self, env_idx):
-        with torch.device(self.device):
+            # TODO (arth): figure out rejection pipeline including arm/base randomization
+            #       tbh not sure how to do yet, might just increase collision thresholds in training
             self.resting_qpos = torch.tensor(self.agent.RESTING_QPOS[3:-2])
 
             b = len(env_idx)
