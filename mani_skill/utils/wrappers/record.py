@@ -296,6 +296,9 @@ class RecordEpisode(gym.Wrapper):
         options: Optional[dict] = dict(),
         **kwargs,
     ):
+        if options is None:
+            options = dict()
+
         if self.save_on_reset:
             if self.save_video and self.num_envs == 1:
                 self.flush_video()
