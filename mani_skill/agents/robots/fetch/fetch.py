@@ -41,30 +41,34 @@ class Fetch(BaseAgent):
             ),
         ),
     )
-    sensor_configs = [
-        CameraConfig(
-            uid="fetch_head",
-            p=[0, 0, 0],
-            q=[1, 0, 0, 0],
-            width=128,
-            height=128,
-            fov=2,
-            near=0.01,
-            far=100,
-            entity_uid="head_camera_link",
-        ),
-        CameraConfig(
-            uid="fetch_hand",
-            p=[-0.1, 0, 0.1],
-            q=[1, 0, 0, 0],
-            width=128,
-            height=128,
-            fov=2,
-            near=0.01,
-            far=100,
-            entity_uid="gripper_link",
-        ),
-    ]
+
+    @property
+    def _sensor_configs(self):
+        return [
+            CameraConfig(
+                uid="fetch_head",
+                p=[0, 0, 0],
+                q=[1, 0, 0, 0],
+                width=128,
+                height=128,
+                fov=2,
+                near=0.01,
+                far=100,
+                entity_uid="head_camera_link",
+            ),
+            CameraConfig(
+                uid="fetch_hand",
+                p=[-0.1, 0, 0.1],
+                q=[1, 0, 0, 0],
+                width=128,
+                height=128,
+                fov=2,
+                near=0.01,
+                far=100,
+                entity_uid="gripper_link",
+            ),
+        ]
+
     REACHABLE_DIST = 1.5
     RESTING_QPOS = np.array(
         [
@@ -128,7 +132,7 @@ class Fetch(BaseAgent):
         super().__init__(*args, **kwargs)
 
     @property
-    def controller_configs(self):
+    def _controller_configs(self):
         # -------------------------------------------------------------------------- #
         # Arm
         # -------------------------------------------------------------------------- #
@@ -371,7 +375,6 @@ class Fetch(BaseAgent):
         ] = dict()
 
     def is_grasping(self, object: Actor = None, min_impulse=1e-6, max_angle=85):
-        # TODO (stao): is_grasping code needs to be updated for new GPU sim
         if physx.is_gpu_enabled():
             if object.name not in self.queries:
                 body_pairs = list(zip(self.finger1_link._bodies, object._bodies))

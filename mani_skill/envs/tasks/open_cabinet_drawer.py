@@ -25,19 +25,6 @@ from mani_skill.utils.structs.link import Link
 # TODO (stao): we need to cut the meshes of all the cabinets in this dataset for gpu sim, not registering task for now
 # @register_env("OpenCabinetDrawer-v1", max_episode_steps=100)
 class OpenCabinetDrawerEnv(BaseEnv):
-    """
-    Task Description
-    ----------------
-    Control a robot to open a randomly selected cabinet drawer
-
-    Randomizations
-    --------------
-
-    Success Conditions
-    ------------------
-
-    Visualization: link to a video/gif of the task being solved
-    """
 
     handle_types = ["prismatic"]
 
@@ -55,18 +42,20 @@ class OpenCabinetDrawerEnv(BaseEnv):
         )
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
-    def _register_sensors(self):
+    @property
+    def _sensor_configs(self):
         pose = sapien_utils.look_at(eye=[-2.5, -1.5, 1.8], target=[-0.3, 0.5, 0.1])
         return [
             CameraConfig("base_camera", pose.p, pose.q, 128, 128, np.pi / 2, 0.01, 100)
         ]
 
-    def _register_human_render_cameras(self):
+    @property
+    def _human_render_camera_configs(self):
         pose = sapien_utils.look_at(eye=[-2.3, -1.5, 1.8], target=[-0.3, 0.5, 0])
         # TODO (stao): how much does far affect rendering speed?
         return CameraConfig("render_camera", pose.p, pose.q, 512, 512, 1, 0.01, 100)
 
-    def _load_actors(self):
+    def _load_scene(self):
         self.ground = build_ground(self._scene)
         self._load_cabinets(self.handle_types)
 
@@ -133,7 +122,7 @@ class OpenCabinetDrawerEnv(BaseEnv):
         )
         self._hidden_objects.append(self.handle_link_goal)
 
-    def _initialize_actors(self, env_idx: torch.Tensor):
+    def _initialize_episode(self, env_idx: torch.Tensor):
         # TODO (stao): Clean up this code and try to batch / cache more if possible.
         # And support partial resets
         with torch.device(self.device):

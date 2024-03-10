@@ -4,7 +4,7 @@ Code for a minimal environment/task with just a robot being loaded. We recommend
 At a high-level, ManiSkill tasks can minimally be defined by what agents/actors are
 loaded, how agents/actors are randomly initialized during env resets, how goals are randomized and parameterized in observations, and success conditions
 
-Environment reset is comprised of running two functions, `self.reconfigure` and `self.initialize_episode`, which is auto
+Environment reset is comprised of running two functions, `self._reconfigure` and `self.initialize_episode`, which is auto
 run by ManiSkill. As a user, you can override a number of functions that affect reconfiguration and episode initialization.
 
 Reconfiguration will reset the entire environment scene and allow you to load/swap assets and agents.
@@ -38,7 +38,7 @@ from mani_skill.utils.structs.types import GPUMemoryConfig, SimConfig
 
 
 # register the environment by a unique ID and specify a max time limit. Now once this file is imported you can do gym.make("CustomEnv-v0")
-@register_env("CustomEnv-v0", max_episode_steps=200)
+@register_env("CustomEnv-v1", max_episode_steps=200)
 class CustomEnv(BaseEnv):
     """
     Task Description
@@ -69,20 +69,23 @@ class CustomEnv(BaseEnv):
     # this will then populate agent.agents (list of the instantiated agents) with the right typing
     # agent: MultiAgent[Union[Tuple[Panda, Panda], Tuple[Panda, Panda, Panda]]]
 
-    # Specify default simulation/gpu memory configurations. Note that tasks need to tune their GPU memory configurations accordingly
-    # in order to save memory while also running with no errors. In general you can start with low values and increase them
-    # depending on the messages that show up when you try to run more environments in parallel
-    default_sim_cfg = SimConfig(
-        gpu_memory_cfg=GPUMemoryConfig(
-            found_lost_pairs_capacity=2**25, max_rigid_patch_count=2**18
-        )
-    )
-
     # in the __init__ function you can pick a default robot your task should use e.g. the panda robot by setting a default for robot_uids argument
     # note that if robot_uids is a list of robot uids, then we treat it as a multi-agent setup and load each robot separately.
     def __init__(self, *args, robot_uids="panda", robot_init_qpos_noise=0.02, **kwargs):
         self.robot_init_qpos_noise = robot_init_qpos_noise
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
+
+    # Specify default simulation/gpu memory configurations. Note that tasks need to tune their GPU memory configurations accordingly
+    # in order to save memory while also running with no errors. In general you can start with low values and increase them
+    # depending on the messages that show up when you try to run more environments in parallel. Since this is a python property
+    # you can also check self.num_envs to dynamically set configurations as well
+    @property
+    def _default_sim_cfg(self):
+        return SimConfig(
+            gpu_memory_cfg=GPUMemoryConfig(
+                found_lost_pairs_capacity=2**25, max_rigid_patch_count=2**18
+            )
+        )
 
     """
     Reconfiguration Code
@@ -92,7 +95,17 @@ class CustomEnv(BaseEnv):
     for some tasks these may need to be called multiple times if you need to swap out object assets. In GPU simulation these will only ever be called once.
     """
 
-    def _register_sensors(self):
+    def _load_agent(self):
+        # this code loads the agent into the current scene. You can usually ignore this function by deleting it or calling the inherited
+        # BaseEnv._load_agent function
+        super()._load_agent()
+
+    def _load_scene(self):
+        # here you add various objects like actors and articulations. If your task was to push a ball, you may add a dynamic sphere object on the ground
+        pass
+
+    @property
+    def _sensor_configs(self):
         # To customize the sensors that capture images/pointclouds for the environment observations,
         # simply define a CameraConfig as done below for Camera sensors. You can add multiple sensors by returning a list
         pose = sapien_utils.look_at(
@@ -104,33 +117,23 @@ class CustomEnv(BaseEnv):
             CameraConfig("base_camera", pose.p, pose.q, 128, 128, np.pi / 2, 0.01, 100)
         ]
 
-    def _register_human_render_cameras(self):
-        # this is just like _register_sensors, but for adding cameras used for rendering when you call env.render() when render_mode="rgb_array" or env.render_rgb_array()
+    @property
+    def _human_render_camera_configs(self):
+        # this is just like _sensor_configs, but for adding cameras used for rendering when you call env.render()
+        # when render_mode="rgb_array" or env.render_rgb_array()
+        # Another feature here is that if there is a camera called render_camera, this is the default view shown initially when a GUI is opened
         pose = sapien_utils.look_at([0.6, 0.7, 0.6], [0.0, 0.0, 0.35])
-        return CameraConfig("render_camera", pose.p, pose.q, 512, 512, 1, 0.01, 100)
+        return [CameraConfig("render_camera", pose.p, pose.q, 512, 512, 1, 0.01, 100)]
 
     def _setup_sensors(self):
         # default code here will setup all sensors. You can add additional code to change the sensors e.g.
         # if you want to randomize camera positions
         return super()._setup_sensors()
 
-    def _setup_lighting(self):
+    def _load_lighting(self):
         # default code here will setup all lighting. You can add additional code to change the lighting e.g.
         # if you want to randomize lighting in the scene
-        return super()._setup_lighting()
-
-    def _load_agent(self):
-        # this code loads the agent into the current scene. You can usually ignore this function by deleting it or calling the inherited
-        # BaseEnv._load_agent function
-        super()._load_agent()
-
-    def _load_actors(self):
-        # here you add various objects (called actors). If your task was to push a ball, you may add a dynamic sphere object on the ground
-        pass
-
-    def _load_articulations(self):
-        # here you add various articulations. If your task was to open a drawer, you may add a drawer articulation into the scene
-        pass
+        return super()._load_lighting()
 
     """
     Episode Initialization Code
@@ -144,7 +147,7 @@ class CustomEnv(BaseEnv):
     you might normally need to do when working with GPU simulation. For specific details check out the push_cube.py code
     """
 
-    def _initialize_actors(self, env_idx: torch.Tensor):
+    def _initialize_episode(self, env_idx: torch.Tensor):
         pass
 
     """

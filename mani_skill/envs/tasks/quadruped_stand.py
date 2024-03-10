@@ -20,19 +20,6 @@ from mani_skill.utils.structs.pose import Pose
 
 # @register_env("QuadrupedStand-v1", max_episode_steps=200)
 class QuadrupedStandEnv(BaseEnv):
-    """
-    Task Description
-    ----------------
-    Add a task description here
-
-    Randomizations
-    --------------
-
-    Success Conditions
-    ------------------
-
-    Visualization: link to a video/gif of the task being solved
-    """
 
     SUPPORTED_ROBOTS = ["anymal-c"]
     agent: ANYmalC
@@ -40,7 +27,8 @@ class QuadrupedStandEnv(BaseEnv):
     def __init__(self, *args, robot_uids="anymal-c", **kwargs):
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
-    def _register_sensors(self):
+    @property
+    def _sensor_configs(self):
         pose = sapien_utils.look_at(eye=[0.3, 0, 0.6], target=[-0.1, 0, 0.1])
         return [
             CameraConfig(
@@ -52,11 +40,12 @@ class QuadrupedStandEnv(BaseEnv):
                 np.pi / 2,
                 0.01,
                 100,
-                link=self.agent.robot.links[0],
+                mount=self.agent.robot.links[0],
             )
         ]
 
-    def _register_human_render_cameras(self):
+    @property
+    def _human_render_camera_configs(self):
         pose = sapien_utils.look_at([2.5, 2.5, 1], [0.0, 0.0, 0])
         return CameraConfig(
             "render_camera",
@@ -67,10 +56,10 @@ class QuadrupedStandEnv(BaseEnv):
             1,
             0.01,
             100,
-            link=self.agent.robot.links[0],
+            mount=self.agent.robot.links[0],
         )
 
-    def _load_actors(self):
+    def _load_scene(self):
         # for i in range(10):
         #     ground = build_ground(self._scene, return_builder=True)
         #     ground.initial_pose = sapien.Pose(p=[i * 40, 0, 0])
@@ -85,7 +74,7 @@ class QuadrupedStandEnv(BaseEnv):
         # self.height = -mesh[0].bounding_box.bounds[0, 2]
         self.height = 1.626
 
-    def _initialize_actors(self, env_idx: torch.Tensor):
+    def _initialize_episode(self, env_idx: torch.Tensor):
         with torch.device(self.device):
             self.agent.robot.set_pose(Pose.create_from_pq(p=[0, 0, self.height]))
             self.agent.reset(init_qpos=torch.zeros(self.agent.robot.max_dof))

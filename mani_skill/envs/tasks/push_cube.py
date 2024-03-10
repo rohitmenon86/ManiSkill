@@ -4,7 +4,7 @@ Code for a minimal environment/task with just a robot being loaded. We recommend
 At a high-level, ManiSkill2 tasks can minimally be defined by how the environment resets, what agents/objects are
 loaded, goal parameterization, and success conditions
 
-Environment reset is comprised of running two functions, `self.reconfigure` and `self.initialize_episode`, which is auto
+Environment reset is comprised of running two functions, `self._reconfigure` and `self.initialize_episode`, which is auto
 run by ManiSkill2. As a user, you can override a number of functions that affect reconfiguration and episode initialization.
 
 Reconfiguration will reset the entire environment scene and allow you to load/swap assets and agents.
@@ -50,7 +50,7 @@ class PushCubeEnv(BaseEnv):
     ------------------
     - the cube's xy position is within goal_radius (default 0.1) of the target's xy position by euclidean distance.
 
-    Visualization: TODO: ADD LINK HERE
+    Visualization: https://maniskill.readthedocs.io/en/dev/tasks/index.html#pushcube-v1
     """
 
     SUPPORTED_ROBOTS = ["panda", "xmate3_robotiq", "fetch"]
@@ -58,22 +58,26 @@ class PushCubeEnv(BaseEnv):
     # Specify some supported robot types
     agent: Union[Panda, Xmate3Robotiq, Fetch]
 
-    # Specify default simulation/gpu memory configurations to override any default values
-    default_sim_cfg = SimConfig(
-        gpu_memory_cfg=GPUMemoryConfig(
-            found_lost_pairs_capacity=2**25, max_rigid_patch_count=2**18
-        )
-    )
-
     # set some commonly used values
     goal_radius = 0.1
     cube_half_size = 0.02
 
     def __init__(self, *args, robot_uids="panda", robot_init_qpos_noise=0.02, **kwargs):
+        # specifying robot_uids="panda" as the default means gym.make("PushCube-v1") will default to using the panda arm.
         self.robot_init_qpos_noise = robot_init_qpos_noise
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
-    def _register_sensors(self):
+    # Specify default simulation/gpu memory configurations to override any default values
+    @property
+    def _default_sim_cfg(self):
+        return SimConfig(
+            gpu_memory_cfg=GPUMemoryConfig(
+                found_lost_pairs_capacity=2**25, max_rigid_patch_count=2**18
+            )
+        )
+
+    @property
+    def _sensor_configs(self):
         # registers one 128x128 camera looking at the robot, cube, and target
         # a smaller sized camera will be lower quality, but render faster
         pose = sapien_utils.look_at(eye=[0.3, 0, 0.6], target=[-0.1, 0, 0.1])
@@ -81,12 +85,13 @@ class PushCubeEnv(BaseEnv):
             CameraConfig("base_camera", pose.p, pose.q, 128, 128, np.pi / 2, 0.01, 100)
         ]
 
-    def _register_human_render_cameras(self):
+    @property
+    def _human_render_camera_configs(self):
         # registers a more high-definition (512x512) camera used just for rendering when render_mode="rgb_array" or calling env.render_rgb_array()
         pose = sapien_utils.look_at([0.6, 0.7, 0.6], [0.0, 0.0, 0.35])
         return CameraConfig("render_camera", pose.p, pose.q, 512, 512, 1, 0.01, 100)
 
-    def _load_actors(self):
+    def _load_scene(self):
         # we use a prebuilt scene builder class that automatically loads in a floor and table.
         self.table_scene = TableSceneBuilder(
             env=self, robot_init_qpos_noise=self.robot_init_qpos_noise
@@ -121,7 +126,7 @@ class PushCubeEnv(BaseEnv):
         # and are there just for generating evaluation videos.
         # self._hidden_objects.append(self.goal_region)
 
-    def _initialize_actors(self, env_idx: torch.Tensor):
+    def _initialize_episode(self, env_idx: torch.Tensor):
         # use the torch.device context manager to automatically create tensors on CPU or CUDA depending on self.device, the device the environment runs on
         with torch.device(self.device):
             # the initialization functions where you as a user place all the objects and initialize their properties

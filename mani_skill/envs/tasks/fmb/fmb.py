@@ -17,7 +17,7 @@ from mani_skill.utils.scene_builder.table import TableSceneBuilder
 
 
 # TODO (stao): Complete this task example
-# @register_env("FMBAssembly1-v0", max_episode_steps=200)
+# @register_env("FMBAssembly1-v1", max_episode_steps=200)
 class FMBAssembly1Env(BaseEnv):
     """
     Task Description
@@ -43,17 +43,19 @@ class FMBAssembly1Env(BaseEnv):
         self.robot_init_qpos_noise = robot_init_qpos_noise
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
-    def _register_sensors(self):
+    @property
+    def _sensor_configs(self):
         pose = sapien_utils.look_at(eye=[0.3, 0, 0.6], target=[-0.1, 0, 0.1])
         return [
             CameraConfig("base_camera", pose.p, pose.q, 128, 128, np.pi / 2, 0.01, 100)
         ]
 
-    def _register_human_render_cameras(self):
+    @property
+    def _human_render_camera_configs(self):
         pose = sapien_utils.look_at([1.0, 0.8, 0.8], [0.0, 0.0, 0.35])
         return CameraConfig("render_camera", pose.p, pose.q, 1024, 1024, 1, 0.01, 100)
 
-    def _load_actors(self):
+    def _load_scene(self):
         self.table_scene = TableSceneBuilder(
             env=self, robot_init_qpos_noise=self.robot_init_qpos_noise
         )
@@ -123,7 +125,7 @@ class FMBAssembly1Env(BaseEnv):
         # )
         self.bridge_grasp = builder.build_kinematic(name="bridge_grasp")
 
-    def _initialize_actors(self, env_idx: torch.Tensor):
+    def _initialize_episode(self, env_idx: torch.Tensor):
         self.table_scene.initialize(env_idx)
         offset_pose = sapien.Pose(p=[0.02, -0.115, 0], q=euler2quat(0, 0, np.pi / 2))
         self.board.set_pose(
@@ -141,9 +143,9 @@ class FMBAssembly1Env(BaseEnv):
         )
         self.reorienting_fixture.set_pose(sapien.Pose(p=np.array([0.05, 0.25, 0.0285])))
 
-        place_order = [self.purple_u, self.blue_u, self.purple_u, self.peg, self.bridge]
-        for i, obj in enumerate(place_order):
-            obj.set_pose(obj.pose * sapien.Pose([0, 0, 0.03 * i]))
+        # place_order = [self.purple_u, self.blue_u, self.purple_u, self.peg, self.bridge]
+        # for i, obj in enumerate(place_order):
+        #     obj.set_pose(obj.pose * sapien.Pose([0, 0, 0]))
 
         self.bridge.set_pose(
             sapien.Pose(

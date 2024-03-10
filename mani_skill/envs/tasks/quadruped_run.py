@@ -21,22 +21,12 @@ from mani_skill.utils.structs.types import GPUMemoryConfig, SceneConfig, SimConf
 
 # @register_env("QuadrupedRun-v1", max_episode_steps=200)
 class QuadrupedRunEnv(BaseEnv):
-    """
-    Task Description
-    ----------------
-    Control a quadruped from a standing position to run as fast forward as possible
-
-    Randomizations
-    --------------
-
-    Success Conditions
-    ------------------
-
-    Visualization: link to a video/gif of the task being solved
-    """
 
     SUPPORTED_ROBOTS = ["anymal-c"]
     agent: ANYmalC
+
+    def __init__(self, *args, robot_uids="anymal-c", **kwargs):
+        super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
     """
     NOTE that Isaac Anymal has these settings
@@ -47,28 +37,29 @@ class QuadrupedRunEnv(BaseEnv):
     gpu_found_lost_aggregate_pairs_capacity: 33554432
     gpu_total_aggregate_pairs_capacity: 4194304
     """
-    default_sim_cfg = SimConfig(
-        sim_freq=100,
-        control_freq=50,
-        gpu_memory_cfg=GPUMemoryConfig(
-            heap_capacity=2**27,
-            temp_buffer_capacity=2**25,
-            found_lost_pairs_capacity=2**22,
-            found_lost_aggregate_pairs_capacity=2**25,
-            total_aggregate_pairs_capacity=2**22,
-            max_rigid_patch_count=2**18,
-            max_rigid_contact_count=2**20,
-        ),
-        scene_cfg=SceneConfig(
-            solver_iterations=4,
-            bounce_threshold=0.2,
-        ),
-    )
 
-    def __init__(self, *args, robot_uids="anymal-c", **kwargs):
-        super().__init__(*args, robot_uids=robot_uids, **kwargs)
+    @property
+    def _default_sim_cfg(self):
+        return SimConfig(
+            sim_freq=100,
+            control_freq=50,
+            gpu_memory_cfg=GPUMemoryConfig(
+                heap_capacity=2**27,
+                temp_buffer_capacity=2**25,
+                found_lost_pairs_capacity=2**22,
+                found_lost_aggregate_pairs_capacity=2**25,
+                total_aggregate_pairs_capacity=2**22,
+                max_rigid_patch_count=2**18,
+                max_rigid_contact_count=2**20,
+            ),
+            scene_cfg=SceneConfig(
+                solver_iterations=4,
+                bounce_threshold=0.2,
+            ),
+        )
 
-    def _register_sensors(self):
+    @property
+    def _sensor_configs(self):
         pose = sapien_utils.look_at([1.5, 1.5, 1], [0.0, 0.0, 0])
         return [
             CameraConfig(
@@ -84,7 +75,8 @@ class QuadrupedRunEnv(BaseEnv):
             )
         ]
 
-    def _register_human_render_cameras(self):
+    @property
+    def _human_render_camera_configs(self):
         pose = sapien_utils.look_at([2.5, 2.5, 1], [0.0, 0.0, 0])
         return CameraConfig(
             "render_camera",
@@ -98,11 +90,11 @@ class QuadrupedRunEnv(BaseEnv):
             # link=self.agent.robot.links[0],
         )
 
-    def _load_actors(self):
+    def _load_scene(self):
         self.ground = build_meter_ground(self._scene, floor_width=20)
         self.height = 0.63
 
-    def _initialize_actors(self, env_idx: torch.Tensor):
+    def _initialize_episode(self, env_idx: torch.Tensor):
         with torch.device(self.device):
             self.agent.robot.set_pose(Pose.create_from_pq(p=[0, 0, self.height]))
             self.agent.reset(init_qpos=torch.zeros(self.agent.robot.max_dof))

@@ -15,22 +15,32 @@ import torch
 import transforms3d
 
 from mani_skill import ASSET_DIR
+<<<<<<< HEAD
 from mani_skill.agents.robots.fetch import (
     Fetch,
     FETCH_UNIQUE_COLLISION_BIT,
     FETCH_BASE_COLLISION_BIT,
 )
+=======
+from mani_skill.agents.robots.fetch.fetch import FETCH_UNIQUE_COLLISION_BIT, Fetch
+>>>>>>> dev
 from mani_skill.envs.scene import ManiSkillScene
 from mani_skill.utils.scene_builder import SceneBuilder
 from mani_skill.utils.scene_builder.registration import register_scene_builder
 from mani_skill.utils.structs.articulation import Articulation
+<<<<<<< HEAD
 from mani_skill.utils.structs.actor import Actor
+=======
+>>>>>>> dev
 
 DATASET_CONFIG_DIR = osp.join(osp.dirname(__file__), "metadata")
 
 IGNORE_FETCH_COLLISION_STRS = ["mat", "rug", "carpet"]
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> dev
 @register_scene_builder("ReplicaCAD")
 class ReplicaCADSceneBuilder(SceneBuilder):
     builds_lighting = True  # we set this true because the ReplicaCAD dataset defines some lighting for us so we don't need the default option from ManiSkill

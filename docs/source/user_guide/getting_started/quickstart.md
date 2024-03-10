@@ -52,11 +52,18 @@ python -m mani_skill.examples.demo_random_action -e "ReplicaCAD_SceneManipulatio
 python -m mani_skill.examples.demo_random_action -e "ReplicaCAD_SceneManipulation-v1" --render-mode="human" # run with GUI (recommended!)
 ```
 
+To try out ray-tracing for more photorealistic rendering (which can also be turned on in the render tab of the GUI) as shown below you can do
+
+```bash
+python -m mani_skill.utils.download_asset "ReplicaCAD"
+python -m mani_skill.examples.demo_random_action -e "ReplicaCAD_SceneManipulation-v1" --render-mode="human" --shader="rt-fast"
+```
+
 <video preload="auto" controls="True" width="100%">
 <source src="https://github.com/haosulab/ManiSkill2/raw/dev/docs/source/_static/videos/fetch_random_action_replica_cad_rt.mp4" type="video/mp4">
 </video>
 
-For more details on rendering see TODO (stao). For a compilation of demos you can run without having to write any extra code check out the [demos page](../demos/index)
+For a compilation of demos you can run without having to write any extra code check out the [demos page](../demos/index)
 
 ## Task Instantiation Options
 
@@ -75,7 +82,7 @@ Some ManiSkill tasks also support swapping robot embodiments such as the `PickCu
 gym.make("PickCube-v1", robot_uids="fetch")
 ```
 
-You may also notice the argument is `robot_uids` plural, this is because we also support tasks with multiple robots.
+You may also notice the argument is `robot_uids` plural, this is because we also support tasks with multiple robots which can be done by passing in tuple like `robot_uids=("fetch", "fetch", "panda")`.
 
 ## GPU Parallelized/Vectorized Tasks
 
@@ -124,6 +131,7 @@ python -m mani_skill.examples.benchmarking.gpu_sim --num-envs=64 --obs-mode="rgb
 python -m mani_skill.examples.benchmarking.gpu_sim --num-envs=64 --save-video
 ```
 which will look something like this
+
 <video preload="auto" controls="True" width="100%">
-<source src="https://github.com/haosulab/ManiSkill2/raw/dev/docs/source/_static/videos/mani_skill_gpu_sim-PickCube-v1-num_envs=64-obs_mode=state-render_mode=sensors.mp4" type="video/mp4">
+<source src="https://github.com/haosulab/ManiSkill2/raw/dev/docs/source/_static/videos/mani_skill_gpu_sim-PickCube-v1-num_envs=16-obs_mode=state-render_mode=sensors.mp4" type="video/mp4">
 </video>

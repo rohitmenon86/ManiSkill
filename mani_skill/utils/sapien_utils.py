@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from copy import deepcopy
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple, TypeVar, Union
 
 import numpy as np
@@ -12,43 +11,61 @@ from transforms3d.quaternions import mat2quat
 
 if TYPE_CHECKING:
     from mani_skill.utils.structs.actor import Actor
+    from mani_skill.envs.scene import ManiSkillScene
 
 import torch
 
-from mani_skill.utils.structs.types import Array, get_backend_name
+from mani_skill.utils.structs.types import Array, Device, get_backend_name
 
 
-def to_tensor(array: Union[torch.Tensor, np.array, Sequence]):
+# TODO (stao): this code can be simplified
+def to_tensor(array: Union[torch.Tensor, np.array, Sequence], device: Device = None):
     """
-    Maps any given sequence to a torch tensor on the CPU/GPU. If physx gpu is not enabled then we use CPU, otherwise GPU.
+    Maps any given sequence to a torch tensor on the CPU/GPU. If physx gpu is not enabled then we use CPU, otherwise GPU, unless specified
+    by the device argument
+
+    Args:
+        array: The data to map to a tensor
+        device: The device to put the tensor on. By default this is None and to_tensor will put the device on the GPU if physx is enabled
+            and CPU otherwise
+
     """
     if isinstance(array, (dict)):
         return {k: to_tensor(v) for k, v in array.items()}
     if get_backend_name() == "torch":
         if isinstance(array, np.ndarray):
-            ret = torch.from_numpy(array).cuda()
-            if ret.dtype == torch.float64:
-                ret = ret.float()
-            return ret
-        elif isinstance(array, torch.Tensor):
-            return array.cuda()
-        else:
-            return torch.Tensor(array).cuda()
-    elif get_backend_name() == "numpy":
-        if isinstance(array, np.ndarray):
+            if array.dtype == np.uint16:
+                array = array.astype(np.int32)
             ret = torch.from_numpy(array)
             if ret.dtype == torch.float64:
                 ret = ret.float()
-            return ret
+        elif isinstance(array, torch.Tensor):
+            ret = array
+        else:
+            ret = torch.Tensor(array)
+        if device is None:
+            return ret.cuda()
+        else:
+            return ret.to(device)
+    elif get_backend_name() == "numpy":
+        if isinstance(array, np.ndarray):
+            if array.dtype == np.uint16:
+                array = array.astype(np.int32)
+            ret = torch.from_numpy(array)
+            if ret.dtype == torch.float64:
+                ret = ret.float()
         elif isinstance(array, list) and isinstance(array[0], np.ndarray):
             ret = torch.from_numpy(np.array(array))
             if ret.dtype == torch.float64:
                 ret = ret.float()
-            return ret
         elif np.iterable(array):
-            return torch.Tensor(array)
+            ret = torch.Tensor(array)
         else:
-            return torch.tensor(array)
+            ret = torch.Tensor(array)
+        if device is None:
+            return ret
+        else:
+            return ret.to(device)
 
 
 def _to_numpy(array: Union[Array, Sequence]) -> np.ndarray:
@@ -114,14 +131,20 @@ def _batch(array: Union[Array, Sequence]):
     if isinstance(array, list):
         if len(array) == 1:
             return [array]
-    if isinstance(array, float) or isinstance(array, int) or isinstance(array, bool):
+    if (
+        isinstance(array, float)
+        or isinstance(array, int)
+        or isinstance(array, bool)
+        or isinstance(array, np.bool_)
+    ):
         return np.array([[array]])
     return array
 
 
 def batch(*args: Tuple[Union[Array, Sequence]]):
     """Adds one dimension in front of everything. If given a dictionary, every leaf in the dictionary
-    has a new dimension. If given a tuple, returns the same tuple with each element batched"""
+    has a new dimension. If given a tuple, returns the same tuple with each element batched
+    """
     x = [_batch(x) for x in args]
     if len(args) == 1:
         return x[0]
@@ -136,25 +159,6 @@ def normalize_vector(x, eps=1e-6):
         return np.zeros_like(x)
     else:
         return x / norm
-
-
-def set_entity_visibility(entity: sapien.Entity, visibility):
-    """TODO (stao): This will not work on GPU"""
-    component = entity.find_component_by_type(sapien.render.RenderBodyComponent)
-    if component is not None:
-        component.visibility = visibility
-
-
-def hide_entity(actor: Actor):
-    """TODO (stao): This will not work on GPU"""
-    for entity in actor._objs:
-        entity.find_component_by_type(sapien.render.RenderBodyComponent).visibility = 0
-
-
-def show_entity(actor: Actor):
-    """TODO (stao): This will not work on GPU"""
-    for entity in actor._objs:
-        entity.find_component_by_type(sapien.render.RenderBodyComponent).visibility = 1
 
 
 T = TypeVar("T")
@@ -245,38 +249,42 @@ def check_urdf_config(urdf_config: dict):
                 )
 
 
-def parse_urdf_config(config_dict: dict, scene: sapien.Scene) -> Dict:
+def parse_urdf_config(config_dict: dict, scene: ManiSkillScene) -> Dict:
     """Parse config from dict for SAPIEN URDF loader.
 
     Args:
         config_dict (dict): a dict containing link physical properties.
-        scene (sapien.Scene): simualtion scene
+        scene (ManiSkillScene): the simulation scene
 
     Returns:
         Dict: urdf config passed to `sapien.URDFLoader.load`.
     """
-    urdf_config = deepcopy(config_dict)
+    # urdf_config = deepcopy(config_dict)
+    urdf_config = dict()
 
     # Create the global physical material for all links
-    mtl_cfg = urdf_config.pop("material", None)
-    if mtl_cfg is not None:
-        urdf_config["material"] = scene.create_physical_material(**mtl_cfg)
+    if "material" in config_dict:
+        urdf_config["material"] = scene.create_physical_material(
+            **config_dict["material"]
+        )
 
     # Create link-specific physical materials
     materials = {}
-    for k, v in urdf_config.pop("_materials", {}).items():
-        materials[k] = scene.create_physical_material(**v)
+    if "_materials" in config_dict:
+        for k, v in config_dict["_materials"].items():
+            materials[k] = scene.create_physical_material(**v)
 
     # Specify properties for links
-    for link_config in urdf_config.get("link", {}).values():
-        # Substitute with actual material
-        link_config["material"] = materials[link_config["material"]]
-
+    if "link" in config_dict:
+        urdf_config["link"] = dict()
+        for k, link_config in config_dict["link"].items():
+            urdf_config["link"][k] = link_config.copy()
+            # substitute with actual material
+            urdf_config["link"][k]["material"] = materials[link_config["material"]]
     return urdf_config
 
 
 def apply_urdf_config(loader: sapien.wrapper.urdf_loader.URDFLoader, urdf_config: dict):
-    # TODO (stao): @fxiang is this complete?
     if "link" in urdf_config:
         for name, link_cfg in urdf_config["link"].items():
             if "material" in link_cfg:
@@ -290,7 +298,6 @@ def apply_urdf_config(loader: sapien.wrapper.urdf_loader.URDFLoader, urdf_config
                 loader.set_link_min_patch_radius(name, link_cfg["min_patch_radius"])
             if "density" in link_cfg:
                 loader.set_link_density(name, link_cfg["density"])
-            # TODO (stao): throw error if there is a config not used?
     if "material" in urdf_config:
         mat: physx.PhysxMaterial = urdf_config["material"]
         loader.set_material(mat.static_friction, mat.dynamic_friction, mat.restitution)

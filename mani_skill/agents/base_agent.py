@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from typing import TYPE_CHECKING, Dict, Union
+from typing import TYPE_CHECKING, Dict, Union, List
 
 import numpy as np
 import sapien
@@ -23,6 +23,7 @@ from .controllers.base_controller import (
 
 if TYPE_CHECKING:
     from mani_skill.envs.scene import ManiSkillScene
+DictControllerConfig = Dict[str, ControllerConfig]
 
 
 class BaseAgent:
@@ -40,16 +41,11 @@ class BaseAgent:
     """
 
     uid: str
-    robot: Articulation
-
+    """unique identifier string of this"""
     urdf_path: str
-    urdf_config: dict
-
-    controller_configs: Dict[str, Union[ControllerConfig, Dict[str, ControllerConfig]]]
-    controllers: Dict[str, BaseController]
-
-    sensor_configs: Dict[str, BaseSensorConfig]
-    sensors: Dict[str, BaseSensor]
+    """path to the .urdf file describe the agent's geometry and visuals"""
+    urdf_config: dict = None
+    """Optional provide a urdf_config to further modify the created articulation"""
 
     def __init__(
         self,
@@ -66,8 +62,12 @@ class BaseAgent:
         # URDF
         self.fix_root_link = fix_root_link
 
+        self.robot: Articulation = None
+        self.controllers: Dict[str, BaseController] = dict()
+        self.sensors: Dict[str, BaseSensor] = dict()
+
         # Controller
-        self.supported_control_modes = list(self.controller_configs.keys())
+        self.supported_control_modes = list(self._controller_configs.keys())
         if control_mode is None:
             control_mode = self.supported_control_modes[0]
         # The control mode after reset for consistency
@@ -76,6 +76,17 @@ class BaseAgent:
         self._load_articulation()
         self._after_loading_articulation()
         self._after_init()
+        self.set_control_mode()
+
+    @property
+    def _sensor_configs(self) -> List[str, BaseSensorConfig]:
+        return []
+
+    @property
+    def _controller_configs(
+        self,
+    ) -> Dict[str, Union[ControllerConfig, DictControllerConfig]]:
+        raise NotImplementedError()
 
     @property
     def device(self):
@@ -93,8 +104,9 @@ class BaseAgent:
 
         urdf_path = format_path(str(self.urdf_path))
 
-        urdf_config = sapien_utils.parse_urdf_config(self.urdf_config, self.scene)
-        sapien_utils.check_urdf_config(urdf_config)
+        if self.urdf_config is not None:
+            urdf_config = sapien_utils.parse_urdf_config(self.urdf_config, self.scene)
+            sapien_utils.check_urdf_config(urdf_config)
 
         # TODO(jigu): support loading multiple convex collision shapes
         sapien_utils.apply_urdf_config(loader, urdf_config)
@@ -133,7 +145,7 @@ class BaseAgent:
         self._control_mode = control_mode
         # create controller on the fly here
         if control_mode not in self.controllers:
-            config = self.controller_configs[self._control_mode]
+            config = self._controller_configs[self._control_mode]
             if isinstance(config, dict):
                 self.controllers[control_mode] = CombinedController(
                     config, self.robot, self._control_freq, scene=self.scene
@@ -148,7 +160,6 @@ class BaseAgent:
                 and self.controllers[control_mode].balance_passive_force
                 and physx.is_gpu_enabled()
             ):
-                # TODO (stao): how come only dict controller has balance_passive_force?
                 # NOTE (stao): Balancing passive force is currently not supported in PhysX, so we work around by disabling gravity
                 for link in self.robot.links:
                     link.disable_gravity = True

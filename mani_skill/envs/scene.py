@@ -13,7 +13,7 @@ from mani_skill.utils.structs.actor import Actor
 from mani_skill.utils.structs.articulation import Articulation
 from mani_skill.utils.structs.link import Link
 from mani_skill.utils.structs.render_camera import RenderCamera
-from mani_skill.utils.structs.types import Array, Device
+from mani_skill.utils.structs.types import Array, Device, SimConfig
 
 
 class ManiSkillScene:
@@ -28,6 +28,7 @@ class ManiSkillScene:
     def __init__(
         self,
         sub_scenes: List[sapien.Scene],
+        sim_cfg: SimConfig,
         debug_mode: bool = True,
         device: Device = None,
     ):
@@ -35,6 +36,7 @@ class ManiSkillScene:
         self.px: Union[physx.PhysxCpuSystem, physx.PhysxGpuSystem] = self.sub_scenes[
             0
         ].physx_system
+        self.sim_cfg = sim_cfg
         self._gpu_sim_initialized = False
         self.debug_mode = debug_mode
         self.device = device
@@ -123,7 +125,7 @@ class ManiSkillScene:
             camera_mount.name = f"scene-{i}_{name}"
             camera.name = f"scene-{i}_{name}"
             cameras.append(camera)
-        return RenderCamera.create(cameras)
+        return RenderCamera.create(cameras, self)
 
     def add_mounted_camera(
         self, name, mount: Union[Actor, Link], pose, width, height, fovy, near, far
@@ -143,7 +145,7 @@ class ManiSkillScene:
             camera.local_pose = pose
             camera.name = f"scene-{i}_{name}"
             cameras.append(camera)
-        return RenderCamera.create(cameras)
+        return RenderCamera.create(cameras, self, mount=mount)
 
     # def remove_camera(self, camera):
     #     self.remove_entity(camera.entity)
@@ -166,35 +168,6 @@ class ManiSkillScene:
             self.render_system_group.update_render()
         else:
             self.sub_scenes[0].update_render()
-
-    # TODO (stao): remove this?
-    # def add_ground(
-    #     self,
-    #     altitude,
-    #     render=True,
-    #     material=None,
-    #     render_material=None,
-    #     render_half_size=[10, 10],
-    # ):
-    #     from .actor_builder import ActorBuilder
-
-    #     builder = self.create_actor_builder()
-    #     if render:
-    #         builder.add_plane_visual(
-    #             sapien.Pose(p=[0, 0, altitude], q=[0.7071068, 0, -0.7071068, 0]),
-    #             [10, *render_half_size],
-    #             render_material,
-    #             "",
-    #         )
-
-    #     builder.add_plane_collision(
-    #         sapien.Pose(p=[0, 0, altitude], q=[0.7071068, 0, -0.7071068, 0]),
-    #         material,
-    #     )
-    #     builder.set_physx_body_type("static")
-    #     ground = builder.build()
-    #     ground.name = "ground"
-    #     return ground
 
     def get_contacts(self):
         return self.px.get_contacts()

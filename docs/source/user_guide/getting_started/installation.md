@@ -6,7 +6,7 @@ From pip (stable version):
 
 ```bash
 # this is currently a beta version of mani_skill with GPU simulation
-pip install mani-skill==3.0.0.dev0
+pip install mani-skill==3.0.0.dev2
 ```
 
 <!-- add the other install options one released -->
@@ -35,7 +35,7 @@ The rigid-body tasks, powered by SAPIEN, are ready to use after installation. Te
 python -m mani_skill.examples.demo_random_action
 ```
 
-A docker image is also provided on [Docker Hub](https://hub.docker.com/repository/docker/haosulab/mani-skill/general) called  `haosulab/mani-skill` and its corresponding [Dockerfile](https://github.com/haosulab/ManiSkill2/blob/main/docker/Dockerfile).
+A docker image is also provided on [Docker Hub](https://hub.docker.com/repository/docker/haosulab/mani-skill/general) called  `haosulab/mani-skill` and its corresponding [Dockerfile](https://github.com/haosulab/ManiSkill2/blob/dev/docker/Dockerfile).
 
 Once you are done here, you can head over to the [quickstart page](./quickstart.md) to try out some live demos and start to program with ManiSkill.
 <!-- 

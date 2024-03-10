@@ -58,21 +58,24 @@ class RotateValveEnv(BaseEnv):
 
         super().__init__(*args, robot_uids="dclaw", **kwargs)
 
-    def _register_sensors(self):
+    @property
+    def _sensor_configs(self):
         pose = sapien_utils.look_at(eye=[0.3, 0, 0.3], target=[-0.1, 0, 0.05])
         return [
             CameraConfig("base_camera", pose.p, pose.q, 128, 128, np.pi / 2, 0.01, 100)
         ]
 
-    def _register_human_render_cameras(self):
+    @property
+    def _human_render_camera_configs(self):
         pose = sapien_utils.look_at([0.2, 0.4, 0.4], [0.0, 0.0, 0.1])
         return CameraConfig("render_camera", pose.p, pose.q, 512, 512, 1, 0.01, 100)
 
-    def _load_actors(self):
+    def _load_scene(self):
         self.table_scene = TableSceneBuilder(
             env=self, robot_init_qpos_noise=self.robot_init_qpos_noise
         )
         self.table_scene.build()
+        self._load_articulations()
 
     def _load_articulations(self):
         # Robel valve
@@ -133,6 +136,10 @@ class RotateValveEnv(BaseEnv):
         self.valve = Articulation.merge(valves, "valve_station")
         self.capsule_lens = torch.from_numpy(np.array(capsule_lens)).to(self.device)
         self.valve_link = sapien_utils.get_obj_by_name(self.valve.get_links(), "valve")
+
+    def _initialize_episode(self, env_idx: torch.Tensor):
+        self._initialize_actors(env_idx)
+        self._initialize_agent(env_idx)
 
     def _initialize_actors(self, env_idx: torch.Tensor):
         with torch.device(self.device):

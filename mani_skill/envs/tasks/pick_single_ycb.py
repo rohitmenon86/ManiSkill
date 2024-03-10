@@ -76,17 +76,19 @@ class PickSingleYCBEnv(BaseEnv):
             **kwargs,
         )
 
-    def _register_sensors(self):
+    @property
+    def _sensor_configs(self):
         pose = sapien_utils.look_at(eye=[0.3, 0, 0.6], target=[-0.1, 0, 0.1])
         return [
             CameraConfig("base_camera", pose.p, pose.q, 128, 128, np.pi / 2, 0.01, 100)
         ]
 
-    def _register_human_render_cameras(self):
+    @property
+    def _human_render_camera_configs(self):
         pose = sapien_utils.look_at([0.6, 0.7, 0.6], [0.0, 0.0, 0.35])
         return CameraConfig("render_camera", pose.p, pose.q, 512, 512, 1, 0.01, 100)
 
-    def _load_actors(self):
+    def _load_scene(self):
         global WARNED_ONCE
         self.table_scene = TableSceneBuilder(
             env=self, robot_init_qpos_noise=self.robot_init_qpos_noise
@@ -136,7 +138,7 @@ class PickSingleYCBEnv(BaseEnv):
         )
         self._hidden_objects.append(self.goal_site)
 
-    def _initialize_actors(self, env_idx: torch.Tensor):
+    def _initialize_episode(self, env_idx: torch.Tensor):
         with torch.device(self.device):
             b = len(env_idx)
             self.table_scene.initialize(env_idx)
@@ -193,7 +195,6 @@ class PickSingleYCBEnv(BaseEnv):
             goal_pos=self.goal_site.pose.p,
         )
         if "state" in self.obs_mode:
-            # TODO (stao): previously we used some cmass pose. Why was that?
             obs.update(
                 tcp_to_goal_pos=self.goal_site.pose.p - self.agent.tcp.pose.p,
                 obj_pose=self.obj.pose.raw_pose,

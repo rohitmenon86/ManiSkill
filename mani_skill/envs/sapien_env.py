@@ -57,7 +57,7 @@ class BaseEnv(gym.Env):
         gpu_sim_backend: The GPU simulation backend to use (only used if the given num_envs argument is > 1). This affects the type of tensor
             returned by the environment for e.g. observations and rewards. Can be "torch" or "jax". Default is "torch"
 
-        obs_mode: observation mode to be used. Must be one of ("state", "state_dict", "none", "sensor_data", "rgbd", "pointcloud")
+        obs_mode: observation mode to be used. Must be one of ("state", "state_dict", "none", "sensor_data", "rgb", "rgbd", "pointcloud")
 
         reward_mode: reward mode to use. Must be one of ("normalized_dense", "dense", "sparse").
 
@@ -81,9 +81,9 @@ class BaseEnv(gym.Env):
         sim_cfg (Union[SimConfig, dict]): Configurations for simulation if used that override the environment defaults. If given
             a dictionary, it can just override specific attributes e.g. `sim_cfg=dict(scene_cfg=dict(solver_iterations=25))`. If
             passing in a SimConfig object, while typed, will override every attribute including the task defaults. Some environments
-            define their own recommended default sim configurations via the `self.default_sim_cfg` attribute that generally should not be
+            define their own recommended default sim configurations via the `self._default_sim_cfg` attribute that generally should not be
             completely overriden. For a full detail/explanation of what is in the sim config see the type hints / go to the source
-            https://github.com/haosulab/ManiSkill2/blob/main/mani_skill /utils/structs/types.py
+            https://github.com/haosulab/ManiSkill2/blob/main/mani_skill/utils/structs/types.py
 
         reconfiguration_freq (int): How frequently to call reconfigure when environment is reset via `self.reset(...)`
             Generally for most users who are not building tasks this does not need to be changed. The default is 0, which means
@@ -95,14 +95,13 @@ class BaseEnv(gym.Env):
         `sensor_cfgs` is used to update environement-specific sensor configurations.
         If the key is one of sensor names (e.g. a camera), the value will be applied to the corresponding sensor.
         Otherwise, the value will be applied to all sensors (but overridden by sensor-specific values).
-        # TODO (stao): add docs about sensor_cfgs, they are not as simply as dict overriding
     """
 
     # fmt: off
     SUPPORTED_ROBOTS: List[Union[str, Tuple[str]]] = None
     """Override this to enforce which robots or tuples of robots together are supported in the task. During env creation,
     setting robot_uids auto loads all desired robots into the scene, but not all tasks are designed to support some robot setups"""
-    SUPPORTED_OBS_MODES = ("state", "state_dict", "none", "sensor_data", "rgbd", "pointcloud")
+    SUPPORTED_OBS_MODES = ("state", "state_dict", "none", "sensor_data", "rgb", "rgbd", "pointcloud")
     SUPPORTED_REWARD_MODES = ("normalized_dense", "dense", "sparse")
     SUPPORTED_RENDER_MODES = ("human", "rgb_array", "sensors")
     """The supported render modes. Human opens up a GUI viewer. rgb_array returns an rgb array showing the current environment state.
@@ -130,6 +129,12 @@ class BaseEnv(gym.Env):
 
     _hidden_objects: List[Union[Actor, Articulation]] = []
     """list of objects that are hidden during rendering when generating visual observations / running render_cameras()"""
+
+    _main_rng: np.random.RandomState = None
+    """main rng generator that generates episode seed sequences. For internal use only"""
+
+    _episode_rng: np.random.RandomState = None
+    """the numpy RNG that you can use to generate random numpy data"""
 
     def __init__(
         self,
@@ -160,17 +165,18 @@ class BaseEnv(gym.Env):
                 sapien.physx.enable_gpu()
             self.device = torch.device(
                 "cuda"
-            )  # TODO (stao): fix this for multi gpu support?
+            )  # TODO (stao): fix this for multi process support
         else:
             self.device = torch.device("cpu")
+
+        # TODO (stao): move the merge code / handling union typed arguments outside here so classes inheriting BaseEnv only get
+        # the already parsed sim config argument
         if isinstance(sim_cfg, SimConfig):
             sim_cfg = sim_cfg.dict()
-        merged_gpu_sim_cfg = self.default_sim_cfg.dict()
+        merged_gpu_sim_cfg = self._default_sim_cfg.dict()
         dict_merge(merged_gpu_sim_cfg, sim_cfg)
         self.sim_cfg = dacite.from_dict(data_class=SimConfig, data=merged_gpu_sim_cfg, config=dacite.Config(strict=True))
         """the final sim config after merging user overrides with the environment default"""
-        # TODO (stao): there may be a memory leak or some issue with memory not being released when repeatedly creating and closing environments with high memory requirements
-        # test withg pytest tests/ -m "not slow and gpu_sim" --pdb
         sapien.physx.set_gpu_memory_config(**self.sim_cfg.gpu_memory_cfg.dict())
         self.shader_dir = shader_dir
         if self.shader_dir == "default":
@@ -191,6 +197,12 @@ class BaseEnv(gym.Env):
             sapien.render.set_viewer_shader_dir("rt")
             sapien.render.set_ray_tracing_samples_per_pixel(2)
             sapien.render.set_ray_tracing_path_depth(1)
+            sapien.render.set_ray_tracing_denoiser("optix")
+        elif self.shader_dir == "rt-med":
+            sapien.render.set_camera_shader_dir("rt")
+            sapien.render.set_viewer_shader_dir("rt")
+            sapien.render.set_ray_tracing_samples_per_pixel(4)
+            sapien.render.set_ray_tracing_path_depth(3)
             sapien.render.set_ray_tracing_denoiser("optix")
         sapien.render.set_log_level(os.getenv("MS2_RENDERER_LOG_LEVEL", "warn"))
 
@@ -276,10 +288,10 @@ class BaseEnv(gym.Env):
             return self.single_observation_space
 
     @property
-    def default_sim_cfg(self):
+    def _default_sim_cfg(self):
         return SimConfig()
+    
     def _load_agent(self):
-        # agent_cls: Type[BaseAgent] = self._agent_cls
         agents = []
         robot_uids = self.robot_uids
         if robot_uids is not None:
@@ -288,7 +300,6 @@ class BaseEnv(gym.Env):
             for i, robot_uid in enumerate(robot_uids):
                 if isinstance(robot_uid, type(BaseAgent)):
                     agent_cls = robot_uid
-                    # robot_uids = self._agent_cls.uid
                 else:
                     if robot_uid not in REGISTERED_AGENTS:
                         raise RuntimeError(
@@ -301,39 +312,23 @@ class BaseEnv(gym.Env):
                     self._control_mode,
                     agent_idx=i if len(robot_uids) > 1 else None,
                 )
-                agent.set_control_mode()
                 agents.append(agent)
         if len(agents) == 1:
             self.agent = agents[0]
         else:
             self.agent = MultiAgent(agents)
+        # TODO (stao): do we stil need this?
         # set_articulation_render_material(self.agent.robot, specular=0.9, roughness=0.3)
-
-    def _configure_sensors(self):
-        self._sensor_cfgs = OrderedDict()
-
-        # Add task/external sensors
-        self._sensor_cfgs.update(parse_camera_cfgs(self._register_sensors()))
-
-        # Add agent sensors
-        self._agent_camera_cfgs = OrderedDict()
-        self._agent_camera_cfgs = parse_camera_cfgs(self.agent.sensor_configs)
-        self._sensor_cfgs.update(self._agent_camera_cfgs)
-
-    def _register_sensors(
+    @property
+    def _sensor_configs(
         self,
     ) -> Union[
         BaseSensorConfig, Sequence[BaseSensorConfig], Dict[str, BaseSensorConfig]
     ]:
         """Register (non-agent) sensors for the environment."""
         return []
-
-    def _configure_human_render_cameras(self):
-        self._human_render_camera_cfgs = parse_camera_cfgs(
-            self._register_human_render_cameras()
-        )
-
-    def _register_human_render_cameras(
+    @property
+    def _human_render_camera_configs(
         self,
     ) -> Union[
         BaseSensorConfig, Sequence[BaseSensorConfig], Dict[str, BaseSensorConfig]
@@ -386,7 +381,6 @@ class BaseEnv(gym.Env):
             info (Dict): The info object of the environment. Generally should always be the result of `self.get_info()`.
                 If this is None (the default), this function will call `self.get_info()` itself
         """
-        squeeze_dims = self.num_envs == 1
         if info is None:
             info = self.get_info()
         if self._obs_mode == "none":
@@ -397,10 +391,13 @@ class BaseEnv(gym.Env):
             obs = flatten_state_dict(state_dict, use_torch=True, device=self.device)
         elif self._obs_mode == "state_dict":
             obs = self._get_obs_state_dict(info)
-        elif self._obs_mode in ["sensor_data", "rgbd", "pointcloud"]:
+        elif self._obs_mode in ["sensor_data", "rgbd", "rgb", "pointcloud"]:
             obs = self._get_obs_with_sensor_data(info)
             if self._obs_mode == "rgbd":
-                obs = sensor_data_to_rgbd(obs, self._sensors)
+                obs = sensor_data_to_rgbd(obs, self._sensors, rgb=True, depth=True)
+            elif self._obs_mode == "rgb":
+                # TODO (stao): we can optmize this by not taking the PositionSegmentation texture at all.
+                obs = sensor_data_to_rgbd(obs, self._sensors, rgb=True, depth=False)
             elif self.obs_mode == "pointcloud":
                 obs = sensor_data_to_pointcloud(obs, self._sensors)
         else:
@@ -474,7 +471,16 @@ class BaseEnv(gym.Env):
 
     def get_reward(self, obs: Any, action: torch.Tensor, info: Dict):
         if self._reward_mode == "sparse":
-            reward = info["success"]
+            if "success" in info:
+                if "fail" in info:
+                    reward = info["success"] - info["fail"]
+                else:
+                    reward = info["success"]
+            else:
+                if "fail" in info:
+                    reward = -info["fail"]
+                else:
+                    reward = torch.zeros(self.num_envs, dtype=float, device=self.device)
         elif self._reward_mode == "dense":
             reward = self.compute_dense_reward(obs=obs, action=action, info=info)
         elif self._reward_mode == "normalized_dense":
@@ -486,17 +492,17 @@ class BaseEnv(gym.Env):
         return reward
 
     def compute_dense_reward(self, obs: Any, action: torch.Tensor, info: Dict):
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def compute_normalized_dense_reward(
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
-        raise NotImplementedError
+        raise NotImplementedError()
 
     # -------------------------------------------------------------------------- #
     # Reconfigure
     # -------------------------------------------------------------------------- #
-    def reconfigure(self):
+    def _reconfigure(self):
         """Reconfigure the simulation scene instance.
         This function clears the previous scene and creates a new one.
 
@@ -508,51 +514,63 @@ class BaseEnv(gym.Env):
         shape changes each time and the faucet model changes each time respectively.
         """
 
-        with torch.random.fork_rng():
-            torch.manual_seed(seed=self._episode_seed)
-            self._clear()
-            # load everything into the scene first before initializing anything
-            self._setup_scene()
-            self._load_agent()
-            self._load_actors()
-            self._load_articulations()
+        self._clear()
+        # load everything into the scene first before initializing anything
+        self._setup_scene()
+        self._load_agent()
+        self._load_scene()
 
-            self._setup_lighting()
+        self._load_lighting()
 
-            # NOTE(jigu): Agent and camera configurations should not change after initialization.
-            self._configure_sensors()
-            self._configure_human_render_cameras()
-
-            # TODO (stao): permit camera changes on env creation here
-            # # Override camera configurations
-            if self._custom_sensor_cfgs is not None:
-                update_camera_cfgs_from_dict(
-                    self._sensor_cfgs, self._custom_sensor_cfgs
-                )
-            if self._custom_human_render_camera_cfgs is not None:
-                update_camera_cfgs_from_dict(
-                    self._human_render_camera_cfgs,
-                    self._custom_human_render_camera_cfgs,
-                )
-
-            # Cache entites and articulations
-            if sapien.physx.is_gpu_enabled():
-                self._scene._setup_gpu()
-                self._scene._gpu_fetch_all()
-            self._setup_sensors()  # for GPU sim, we have to setup sensors after we call setup gpu in order to enable loading mounted sensors
-            if self._viewer is not None:
-                self._setup_viewer()
+        if sapien.physx.is_gpu_enabled():
+            self._scene._setup_gpu()
+            self._scene._gpu_fetch_all()
+        # for GPU sim, we have to setup sensors after we call setup gpu in order to enable loading mounted sensors as they depend on GPU buffer data
+        self._setup_sensors()
+        if self._viewer is not None:
+            self._setup_viewer()
         self._reconfig_counter = self.reconfiguration_freq
 
-    def _load_actors(self):
-        """Loads all actors into the scene. Called by `self.reconfigure`"""
+    def _after_reconfigure(self):
+        """Add code here that should run immediately after self._reconfigure() is called. The torch RNG context is still active so RNG is still
+        seeded here by self._episode_seed. This is useful if you need to run something that only happens after reconfiguration but need the
+        GPU initialized so that you can check e.g. collisons, poses etc."""
 
-    def _load_articulations(self):
-        """Loads all articulations into the scene. Called by `self.reconfigure`"""
+    def _load_scene(self):
+        """Loads all objects like actors and articulations into the scene. Called by `self._reconfigure`"""
 
     # TODO (stao): refactor this into sensor API
     def _setup_sensors(self):
-        """Setup sensors in the scene. Called by `self.reconfigure`"""
+        """Setup sensor configurations and the sensor objects in the scene. Called by `self._reconfigure`"""
+
+        # First create all the configurations
+        self._sensor_cfgs = OrderedDict()
+
+        # Add task/external sensors
+        self._sensor_cfgs.update(parse_camera_cfgs(self._sensor_configs))
+
+        # Add agent sensors
+        self._agent_camera_cfgs = OrderedDict()
+        self._agent_camera_cfgs = parse_camera_cfgs(self.agent._sensor_configs)
+        self._sensor_cfgs.update(self._agent_camera_cfgs)
+
+        # Add human render camera configs
+        self._human_render_camera_cfgs = parse_camera_cfgs(
+            self._human_render_camera_configs
+        )
+
+        # Override camera configurations with user supplied configurations
+        if self._custom_sensor_cfgs is not None:
+            update_camera_cfgs_from_dict(
+                self._sensor_cfgs, self._custom_sensor_cfgs
+            )
+        if self._custom_human_render_camera_cfgs is not None:
+            update_camera_cfgs_from_dict(
+                self._human_render_camera_cfgs,
+                self._custom_human_render_camera_cfgs,
+            )
+
+        # Now we instantiate the actual sensor objects
         self._sensors = OrderedDict()
 
         for uid, sensor_cfg in self._sensor_cfgs.items():
@@ -581,9 +599,8 @@ class BaseEnv(gym.Env):
         self._scene.sensors = self._sensors
         self._scene.human_render_cameras = self._human_render_cameras
 
-    def _setup_lighting(self):
-        # TODO (stao): remove this code out. refactor it to be inside scene builders
-        """Setup lighting in the scene. Called by `self.reconfigure`"""
+    def _load_lighting(self):
+        """Loads lighting into the scene. Called by `self._reconfigure`. If not overriden will set some simple default lighting"""
 
         shadow = self.enable_shadow
         self._scene.set_ambient_light([0.3, 0.3, 0.3])
@@ -598,19 +615,19 @@ class BaseEnv(gym.Env):
     # -------------------------------------------------------------------------- #
     def reset(self, seed=None, options=None):
         """
-        Reset the ManiSkill environment
+        Reset the ManiSkill environment. If options["env_idx"] is given, will only reset the selected parallel environments. If
+        options["reconfigure"] is True, will call self._reconfigure() which deletes the entire physx scene and reconstructs everything.
+        Users building custom tasks generally do not need to override this function.
 
         Note that ManiSkill always holds two RNG states, a main RNG, and an episode RNG. The main RNG is used purely to sample an episode seed which
-        helps with reproducibility of episodes. The episode RNG is used by the environment/task itself to e.g. randomize object positions, randomize assets etc.
+        helps with reproducibility of episodes and is for internal use only. The episode RNG is used by the environment/task itself to
+        e.g. randomize object positions, randomize assets etc. Episode RNG is accessible by using torch.rand (recommended) which is seeded with a
+        RNG context or the numpy alternative via `self._episode_rng`
 
         Upon environment creation via gym.make, the main RNG is set with a fixed seed of 2022.
         During each reset call, if seed is None, main RNG is unchanged and an episode seed is sampled from the main RNG to create the episode RNG.
-        If seed is not None, main RNG is set to that seed and the episode seed is also set to that seed.
-
-
-        Note that when giving a specific seed via `reset(seed=...)`, we always set the main RNG based on that seed. This then deterministically changes the **sequence** of RNG
-        used for each episode after each call to reset with `seed=None`. By default this sequence of rng starts with the default main seed used which is 2022,
-        which means that when creating an environment and resetting without a seed, it will always have the same sequence of RNG for each episode.
+        If seed is not None, main RNG is set to that seed and the episode seed is also set to that seed. This design means the main RNG determines
+        the episode RNG deterministically.
 
         """
         if options is None:
@@ -625,8 +642,10 @@ class BaseEnv(gym.Env):
             self._reconfig_counter == 0 and self.reconfiguration_freq != 0
         )
         if reconfigure:
-            self.reconfigure()
-
+            with torch.random.fork_rng():
+                torch.manual_seed(seed=self._episode_seed)
+                self._reconfigure()
+                self._after_reconfigure()
         if "env_idx" in options:
             env_idx = options["env_idx"]
             self._scene._reset_mask = torch.zeros(
@@ -650,7 +669,9 @@ class BaseEnv(gym.Env):
         # Set the episode rng again after reconfiguration to guarantee seed reproducibility
         self._set_episode_rng(self._episode_seed)
         self.agent.reset()
-        self.initialize_episode(env_idx)
+        with torch.random.fork_rng():
+            torch.manual_seed(self._episode_seed)
+            self._initialize_episode(env_idx)
         # reset the reset mask back to all ones so any internal code in maniskill can continue to manipulate all scenes at once as usual
         self._scene._reset_mask = torch.ones(
             self.num_envs, dtype=bool, device=self.device
@@ -688,32 +709,12 @@ class BaseEnv(gym.Env):
             self._episode_seed = seed
         self._episode_rng = np.random.RandomState(self._episode_seed)
 
-    def initialize_episode(self, env_idx: torch.Tensor):
-        # TODO (stao): should we even split these into 4 separate functions?
-        """Initialize the episode, e.g., poses of entities and articulations, and robot configuration.
-        No new assets are created. Task-relevant information can be initialized here, like goals.
+    def _initialize_episode(self, env_idx: torch.Tensor):
+        """Initialize the episode, e.g., poses of actors and articulations, as well as task relevant data like randomizing
+        goal positions
         """
-        with torch.random.fork_rng():
-            torch.manual_seed(self._episode_seed)
-            self._initialize_actors(env_idx)
-            self._initialize_articulations(env_idx)
-            self._initialize_agent(env_idx)
-            self._initialize_task(env_idx)
-
-    def _initialize_actors(self, env_idx: torch.Tensor):
-        """Initialize the poses of actors. Called by `self.initialize_episode`"""
-
-    def _initialize_articulations(self, env_idx: torch.Tensor):
-        """Initialize the (joint) poses of articulations. Called by `self.initialize_episode`"""
-
-    def _initialize_agent(self, env_idx: torch.Tensor):
-        """Initialize the (joint) poses of agent(robot). Called by `self.initialize_episode`"""
-
-    def _initialize_task(self, env_idx: torch.Tensor):
-        """Initialize task-relevant information, like goals. Called by `self.initialize_episode`"""
 
     def _clear_sim_state(self):
-        # TODO (stao): we should rename this. This could mean setting pose to 0 as if we just reconfigured everything...
         """Clear simulation state (velocities)"""
         for actor in self._scene.actors.values():
             if actor.px_body_type == "static":
@@ -727,7 +728,7 @@ class BaseEnv(gym.Env):
         if physx.is_gpu_enabled():
             self._scene._gpu_apply_all()
             self._scene._gpu_fetch_all()
-            # TODO (stao): This may be an unnecessary fetch and apply. ALSO do not fetch right after apply, no guarantee the data is updated correctly
+            # TODO (stao): This may be an unnecessary fetch and apply.
 
     # -------------------------------------------------------------------------- #
     # Step
@@ -811,6 +812,7 @@ class BaseEnv(gym.Env):
         self._before_control_step()
         for _ in range(self._sim_steps_per_control):
             self.agent.before_simulation_step()
+            self._before_simulation_step()
             with sapien.profile("step_i"):
                 self._scene.step()
             self._after_simulation_step()
@@ -843,20 +845,21 @@ class BaseEnv(gym.Env):
     def _before_control_step(self):
         pass
 
+    def _before_simulation_step(self):
+        """Code to run right before physx_system.step is called"""
     def _after_simulation_step(self):
-        pass
+        """Code to run right after physx_system.step is called"""
 
     # -------------------------------------------------------------------------- #
     # Simulation and other gym interfaces
     # -------------------------------------------------------------------------- #
     def _set_scene_config(self):
-        # TODO (stao): Do these have any effect after calling gpu_init?
         physx.set_scene_config(**self.sim_cfg.scene_cfg.dict())
         physx.set_default_material(**self.sim_cfg.default_materials_cfg.dict())
 
     def _setup_scene(self):
         """Setup the simulation scene instance.
-        The function should be called in reset(). Called by `self.reconfigure`"""
+        The function should be called in reset(). Called by `self._reconfigure`"""
         self._set_scene_config()
         if sapien.physx.is_gpu_enabled():
             self.physx_system = sapien.physx.PhysxGpuSystem()
@@ -886,13 +889,13 @@ class BaseEnv(gym.Env):
                 sapien.Scene([self.physx_system, sapien.render.RenderSystem()])
             ]
         # create a "global" scene object that users can work with that is linked with all other scenes created
-        self._scene = ManiSkillScene(sub_scenes, device=self.device)
+        self._scene = ManiSkillScene(sub_scenes, sim_cfg=self.sim_cfg, device=self.device)
         self.physx_system.timestep = 1.0 / self._sim_freq
 
     def _clear(self):
         """Clear the simulation scene instance and other buffers.
         The function can be called in reset() before a new scene is created.
-        Called by `self.reconfigure` and when the environment is closed/deleted
+        Called by `self._reconfigure` and when the environment is closed/deleted
         """
         self._close_viewer()
         self.agent = None
@@ -984,7 +987,7 @@ class BaseEnv(gym.Env):
         The function should be called after a new scene is configured.
         In subclasses, this function can be overridden to set viewer cameras.
 
-        Called by `self.reconfigure`
+        Called by `self._reconfigure`
         """
         # TODO (stao): handle GPU parallel sim rendering code:
         if physx.is_gpu_enabled():
@@ -1028,7 +1031,6 @@ class BaseEnv(gym.Env):
             obj.show_visual()
         self._scene.update_render()
         images = []
-        # TODO (stao): refactor this code either into ManiSkillScene class and/or merge the code, it's pretty similar?
         if physx.is_gpu_enabled():
             for name in self._scene.human_render_cameras.keys():
                 camera_group = self._scene.camera_groups[name]
@@ -1042,7 +1044,6 @@ class BaseEnv(gym.Env):
                 if camera_name is not None and name != camera_name:
                     continue
                 camera.capture()
-                # TODO (stao): the output of this is not the same as gpu setting, its float here
                 if self.shader_dir == "default":
                     rgb = (camera.get_picture("Color")[..., :3]).to(torch.uint8)
                 else:

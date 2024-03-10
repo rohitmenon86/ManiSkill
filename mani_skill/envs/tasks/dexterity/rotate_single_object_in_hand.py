@@ -59,7 +59,7 @@ class RotateSingleObjectInHand(BaseEnv):
             self.cum_rotation_angle = torch.zeros((self.num_envs,))
 
     @property
-    def default_sim_cfg(self):
+    def _default_sim_cfg(self):
         return SimConfig(
             gpu_memory_cfg=GPUMemoryConfig(
                 max_rigid_contact_count=self.num_envs * max(1024, self.num_envs) * 8,
@@ -68,7 +68,8 @@ class RotateSingleObjectInHand(BaseEnv):
             )
         )
 
-    def _register_sensors(self):
+    @property
+    def _sensor_configs(self):
         pose = sapien_utils.look_at(
             eye=[0.15, 0, 0.45], target=[-0.1, 0, self.hand_init_height]
         )
@@ -76,11 +77,12 @@ class RotateSingleObjectInHand(BaseEnv):
             CameraConfig("base_camera", pose.p, pose.q, 128, 128, np.pi / 2, 0.01, 100)
         ]
 
-    def _register_human_render_cameras(self):
+    @property
+    def _human_render_camera_configs(self):
         pose = sapien_utils.look_at([0.2, 0.4, 0.4], [0.0, 0.0, 0.1])
         return CameraConfig("render_camera", pose.p, pose.q, 512, 512, 1, 0.01, 100)
 
-    def _load_actors(self):
+    def _load_scene(self):
         self.table_scene = TableSceneBuilder(
             env=self, robot_init_qpos_noise=self.robot_init_qpos_noise
         )
@@ -140,6 +142,10 @@ class RotateSingleObjectInHand(BaseEnv):
             )
 
         self.obj_heights = torch.from_numpy(np.array(obj_heights)).to(self.device)
+
+    def _initialize_episode(self, env_idx: torch.Tensor):
+        self._initialize_actors(env_idx)
+        self._initialize_agent(env_idx)
 
     def _initialize_actors(self, env_idx: torch.Tensor):
         with torch.device(self.device):

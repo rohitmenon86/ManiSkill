@@ -60,7 +60,7 @@ class Panda(BaseAgent):
         super().__init__(*args, **kwargs)
 
     @property
-    def controller_configs(self):
+    def _controller_configs(self):
         # -------------------------------------------------------------------------- #
         # Arm
         # -------------------------------------------------------------------------- #
@@ -195,8 +195,6 @@ class Panda(BaseAgent):
         # Make a deepcopy in case users modify any config
         return deepcopy_dict(controller_configs)
 
-    sensor_configs = []
-
     def _after_init(self):
         self.finger1_link = sapien_utils.get_obj_by_name(
             self.robot.get_links(), "panda_leftfinger"
@@ -219,7 +217,6 @@ class Panda(BaseAgent):
         ] = dict()
 
     def is_grasping(self, object: Actor = None, min_impulse=1e-6, max_angle=85):
-        # TODO (stao): is_grasping code needs to be updated for new GPU sim
         if physx.is_gpu_enabled():
             if object.name not in self.queries:
                 body_pairs = list(zip(self.finger1_link._bodies, object._bodies))
@@ -258,10 +255,10 @@ class Panda(BaseAgent):
 
             if object is None:
                 finger1_contacts = sapien_utils.get_actor_contacts(
-                    contacts, self.finger1_link
+                    contacts, self.finger1_link._bodies[0].entity
                 )
                 finger2_contacts = sapien_utils.get_actor_contacts(
-                    contacts, self.finger2_link
+                    contacts, self.finger2_link._bodies[0].entity
                 )
                 return (
                     np.linalg.norm(sapien_utils.compute_total_impulse(finger1_contacts))
@@ -273,10 +270,14 @@ class Panda(BaseAgent):
                 )
             else:
                 limpulse = sapien_utils.get_pairwise_contact_impulse(
-                    contacts, self.finger1_link, object
+                    contacts,
+                    self.finger1_link._bodies[0].entity,
+                    object._bodies[0].entity,
                 )
                 rimpulse = sapien_utils.get_pairwise_contact_impulse(
-                    contacts, self.finger2_link, object
+                    contacts,
+                    self.finger2_link._bodies[0].entity,
+                    object._bodies[0].entity,
                 )
 
                 # direction to open the gripper
@@ -301,7 +302,7 @@ class Panda(BaseAgent):
                     and np.rad2deg(rangle) <= max_angle
                 )
 
-                return all([lflag, rflag])
+                return torch.tensor([all([lflag, rflag])], dtype=bool)
 
     def is_static(self, threshold: float = 0.2):
         qvel = self.robot.get_qvel()[..., :-2]

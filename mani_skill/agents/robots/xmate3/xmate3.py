@@ -80,7 +80,7 @@ class Xmate3Robotiq(BaseAgent):
         ] = dict()
 
     @property
-    def controller_configs(self):
+    def _controller_configs(self):
         # -------------------------------------------------------------------------- #
         # Arm
         # -------------------------------------------------------------------------- #
@@ -152,35 +152,36 @@ class Xmate3Robotiq(BaseAgent):
         # Make a deepcopy in case users modify any config
         return deepcopy_dict(controller_configs)
 
-    sensor_configs = [
-        CameraConfig(
-            uid="base_camera",
-            p=[0.0, 0.0, 0.0],
-            q=[1, 0, 0, 0],
-            width=128,
-            height=128,
-            fov=1.5707,
-            near=0.01,
-            far=100,
-            entity_uid="camera_base_link",
-            hide_link=False,
-        ),
-        CameraConfig(
-            uid="hand_camera",
-            p=[0.0, 0.0, 0.0],
-            q=[1, 0, 0, 0],
-            width=128,
-            height=128,
-            fov=1.5707,
-            near=0.01,
-            far=100,
-            entity_uid="camera_hand_link",
-            hide_link=False,
-        ),
-    ]
+    @property
+    def _sensor_configs(self):
+        return [
+            CameraConfig(
+                uid="base_camera",
+                p=[0.0, 0.0, 0.0],
+                q=[1, 0, 0, 0],
+                width=128,
+                height=128,
+                fov=1.5707,
+                near=0.01,
+                far=100,
+                entity_uid="camera_base_link",
+                hide_link=False,
+            ),
+            CameraConfig(
+                uid="hand_camera",
+                p=[0.0, 0.0, 0.0],
+                q=[1, 0, 0, 0],
+                width=128,
+                height=128,
+                fov=1.5707,
+                near=0.01,
+                far=100,
+                entity_uid="camera_hand_link",
+                hide_link=False,
+            ),
+        ]
 
     def is_grasping(self, object: Actor = None, min_impulse=1e-6, max_angle=85):
-        # TODO (stao): is_grasping code needs to be updated for new GPU sim
         if physx.is_gpu_enabled():
             if object.name not in self.queries:
                 body_pairs = list(zip(self.finger1_link._bodies, object._bodies))
@@ -219,10 +220,10 @@ class Xmate3Robotiq(BaseAgent):
 
             if object is None:
                 finger1_contacts = sapien_utils.get_actor_contacts(
-                    contacts, self.finger1_link
+                    contacts, self.finger1_link._bodies[0].entity
                 )
                 finger2_contacts = sapien_utils.get_actor_contacts(
-                    contacts, self.finger2_link
+                    contacts, self.finger2_link._bodies[0].entity
                 )
                 return (
                     np.linalg.norm(sapien_utils.compute_total_impulse(finger1_contacts))
@@ -234,10 +235,14 @@ class Xmate3Robotiq(BaseAgent):
                 )
             else:
                 limpulse = sapien_utils.get_pairwise_contact_impulse(
-                    contacts, self.finger1_link, object
+                    contacts,
+                    self.finger1_link._bodies[0].entity,
+                    object._bodies[0].entity,
                 )
                 rimpulse = sapien_utils.get_pairwise_contact_impulse(
-                    contacts, self.finger2_link, object
+                    contacts,
+                    self.finger2_link._bodies[0].entity,
+                    object._bodies[0].entity,
                 )
 
                 # direction to open the gripper
@@ -262,7 +267,7 @@ class Xmate3Robotiq(BaseAgent):
                     and np.rad2deg(rangle) <= max_angle
                 )
 
-                return all([lflag, rflag])
+                return torch.tensor([all([lflag, rflag])], dtype=bool)
 
     def is_static(self, threshold: float = 0.2):
         qvel = self.robot.get_qvel()[..., :-2]
