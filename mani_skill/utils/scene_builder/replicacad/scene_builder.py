@@ -232,7 +232,7 @@ class ReplicaCADSceneBuilder(SceneBuilder):
             agent: Fetch = self.env.agent
             agent.reset(agent.RESTING_QPOS)
 
-            if self._scene_navigable_positions is not None:
+            if self.navigable_positions is not None:
                 agent.robot.set_pose(
                     sapien.Pose(self.navigable_positions[0].tolist() + [0.001])
                 )

@@ -62,7 +62,9 @@ class SceneManipulationEnv(BaseEnv):
         elif isinstance(scene_idxs, list):
             self.scene_idxs = scene_idxs
         else:
-            self.scene_idxs = np.arange(0, len(self.scene_builder.scene_configs))
+            self.scene_idxs = np.arange(
+                0, len(self.scene_builder.scene_configs)
+            ).tolist()
         self.convex_decomposition = convex_decomposition
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 

@@ -510,14 +510,14 @@ class SequentialTaskEnv(SceneManipulationEnv):
         # return room_camera_config
 
         # this camera follows the robot around (though might be in walls if the space is cramped)
-        robot_camera_pose = sapien_utils.look_at([0, 0.5, 1], [0.5, -0.5, 0])
+        robot_camera_pose = sapien_utils.look_at([-0.2, 0.5, 1], ([0.2, -0.2, 0]))
         robot_camera_config = CameraConfig(
             "render_camera",
             robot_camera_pose.p,
             robot_camera_pose.q,
             512,
             512,
-            2,
+            1.75,
             0.01,
             10,
             mount=self.agent.torso_lift_link,
