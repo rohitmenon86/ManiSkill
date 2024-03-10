@@ -384,25 +384,14 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
             # CONDITION CHECKERS
             # ---------------------------------------------------
 
-            robot_too_far = robot_to_obj_dist > self.agent.REACHABLE_DIST
-            too_far_reward = torch.zeros_like(reward[robot_too_far])
-
-            robot_close_enough = ~robot_too_far
-            close_enough_reward = torch.zeros_like(reward[robot_close_enough])
-
-            not_grasped = robot_close_enough & ~info["is_grasped"]
+            not_grasped = ~info["is_grasped"]
             not_grasped_reward = torch.zeros_like(reward[not_grasped])
 
-            is_grasped = robot_close_enough & info["is_grasped"]
+            is_grasped = info["is_grasped"]
             is_grasped_reward = torch.zeros_like(reward[is_grasped])
 
-            ee_rest = (
-                robot_close_enough
-                & is_grasped
-                & (
-                    torch.norm(tcp_pos - goal_pos, dim=1)
-                    <= self.pick_cfg.ee_rest_thresh
-                )
+            ee_rest = is_grasped & (
+                torch.norm(tcp_pos - goal_pos, dim=1) <= self.pick_cfg.ee_rest_thresh
             )
             ee_rest_reward = torch.zeros_like(reward[ee_rest])
 
@@ -427,76 +416,47 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
 
             new_info["robot_to_obj_dist"] = robot_to_obj_dist
 
-            if torch.any(robot_too_far):
-                # prevent torso and arm moving too much
-                arm_torso_qvel = self.agent.robot.qvel[..., 3:-2][robot_too_far]
-                arm_torso_still_rew = 1 - torch.tanh(
-                    torch.norm(arm_torso_qvel, dim=1) / 5
-                )
-                too_far_reward += arm_torso_still_rew
+            # reaching reward
+            tcp_to_obj_dist = torch.norm(obj_pos - tcp_pos, dim=1)
+            reaching_rew = 1 - torch.tanh(5 * tcp_to_obj_dist)
+            reward += reaching_rew
 
-                # encourage robot to move closer to obj
-                robot_getting_closer_rew = 1 - torch.tanh(
-                    robot_to_obj_dist[robot_too_far] / 5
-                )
-                too_far_reward += robot_getting_closer_rew
+            # penalty for ee moving too much when not grasping
+            ee_vel = self.agent.tcp.linear_velocity
+            ee_still_rew = 1 - torch.tanh(torch.norm(ee_vel, dim=1) / 5)
+            reward += ee_still_rew
 
-                x = torch.zeros(self.num_envs, dtype=arm_torso_still_rew.dtype)
-                x[robot_too_far] = arm_torso_still_rew
-                new_info["arm_torso_still_rew"] = x.clone()
-                x = torch.zeros(self.num_envs, dtype=robot_getting_closer_rew.dtype)
-                x[robot_too_far] = robot_getting_closer_rew
-                new_info["robot_getting_closer_rew"] = x.clone()
+            # pick reward
+            grasp_rew = 2 * info["is_grasped"]
+            reward += grasp_rew
 
-            if torch.any(robot_close_enough):
-                # robot_too_far gives max +2 reward
-                # so, we add +2 to close enough reward so reward only increases as task proceeds
-                close_enough_reward += 2
+            # success reward
+            success_rew = 3 * info["success"]
+            reward += success_rew
 
-                # reaching reward
-                tcp_to_obj_dist = torch.norm(
-                    obj_pos[robot_close_enough] - tcp_pos[robot_close_enough], dim=1
-                )
-                reaching_rew = 1 - torch.tanh(5 * tcp_to_obj_dist)
-                close_enough_reward += reaching_rew
+            # encourage arm and torso in "resting" orientation
+            arm_to_resting_diff = torch.norm(
+                self.agent.robot.qpos[..., 3:-2] - self.resting_qpos,
+                dim=1,
+            )
+            arm_resting_orientation_rew = 1 - torch.tanh(arm_to_resting_diff / 5)
+            reward += arm_resting_orientation_rew
 
-                # penalty for ee moving too much when not grasping
-                ee_vel = self.agent.tcp.linear_velocity[robot_close_enough]
-                ee_still_rew = 1 - torch.tanh(torch.norm(ee_vel, dim=1) / 5)
-                close_enough_reward += ee_still_rew
-
-                # pick reward
-                grasp_rew = 2 * info["is_grasped"][robot_close_enough]
-                close_enough_reward += grasp_rew
-
-                # success reward
-                success_rew = 3 * info["success"][robot_close_enough]
-                close_enough_reward += success_rew
-
-                # encourage arm and torso in "resting" orientation
-                arm_to_resting_diff = torch.norm(
-                    self.agent.robot.qpos[..., 3:-2][robot_close_enough]
-                    - self.resting_qpos,
-                    dim=1,
-                )
-                arm_resting_orientation_rew = 1 - torch.tanh(arm_to_resting_diff / 5)
-                close_enough_reward += arm_resting_orientation_rew
-
-                x = torch.zeros(self.num_envs, dtype=reaching_rew.dtype)
-                x[robot_close_enough] = reaching_rew
-                new_info["reaching_rew"] = x.clone()
-                x = torch.zeros(self.num_envs, dtype=ee_still_rew.dtype)
-                x[robot_close_enough] = ee_still_rew
-                new_info["ee_still_rew"] = x.clone()
-                x = torch.zeros(self.num_envs, dtype=grasp_rew.dtype)
-                x[robot_close_enough] = grasp_rew
-                new_info["grasp_rew"] = x.clone()
-                x = torch.zeros(self.num_envs, dtype=success_rew.dtype)
-                x[robot_close_enough] = success_rew
-                new_info["success_rew"] = x.clone()
-                x = torch.zeros(self.num_envs, dtype=arm_resting_orientation_rew.dtype)
-                x[robot_close_enough] = arm_resting_orientation_rew
-                new_info["arm_resting_orientation_rew"] = x.clone()
+            x = torch.zeros(self.num_envs, dtype=reaching_rew.dtype)
+            x = reaching_rew
+            new_info["reaching_rew"] = x.clone()
+            x = torch.zeros(self.num_envs, dtype=ee_still_rew.dtype)
+            x = ee_still_rew
+            new_info["ee_still_rew"] = x.clone()
+            x = torch.zeros(self.num_envs, dtype=grasp_rew.dtype)
+            x = grasp_rew
+            new_info["grasp_rew"] = x.clone()
+            x = torch.zeros(self.num_envs, dtype=success_rew.dtype)
+            x = success_rew
+            new_info["success_rew"] = x.clone()
+            x = torch.zeros(self.num_envs, dtype=arm_resting_orientation_rew.dtype)
+            x = arm_resting_orientation_rew
+            new_info["arm_resting_orientation_rew"] = x.clone()
 
             if torch.any(not_grasped):
                 # penalty for torso moving up and down too much
@@ -555,10 +515,9 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
                 new_info["static_rew"] = x.clone()
 
             # add rewards to specific envs
-            reward[robot_too_far] += too_far_reward
-            reward[robot_close_enough] += close_enough_reward
             reward[not_grasped] += not_grasped_reward
             reward[is_grasped] += is_grasped_reward
+            reward[ee_rest] += ee_rest_reward
 
             # step collision penalty
             step_col_pen = torch.clamp(
@@ -583,7 +542,7 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
     def compute_normalized_dense_reward(
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
-        max_reward = 19.0
+        max_reward = 17.0
         return self.compute_dense_reward(obs=obs, action=action, info=info) / max_reward
 
     # -------------------------------------------------------------------------------------------------
