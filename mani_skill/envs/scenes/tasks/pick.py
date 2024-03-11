@@ -418,7 +418,7 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
 
             # reaching reward
             tcp_to_obj_dist = torch.norm(obj_pos - tcp_pos, dim=1)
-            reaching_rew = 2 * (1 - torch.tanh(5 * tcp_to_obj_dist))
+            reaching_rew = 3 * (1 - torch.tanh(5 * tcp_to_obj_dist))
             reward += reaching_rew
 
             # penalty for ee moving too much when not grasping
@@ -542,7 +542,7 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
     def compute_normalized_dense_reward(
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
-        max_reward = 18.0
+        max_reward = 19.0
         return self.compute_dense_reward(obs=obs, action=action, info=info) / max_reward
 
     # -------------------------------------------------------------------------------------------------
