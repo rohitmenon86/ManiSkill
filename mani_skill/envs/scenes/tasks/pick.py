@@ -442,21 +442,36 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
             arm_resting_orientation_rew = 1 - torch.tanh(arm_to_resting_diff / 5)
             reward += arm_resting_orientation_rew
 
-            x = torch.zeros(self.num_envs, dtype=reaching_rew.dtype)
-            x = reaching_rew
-            new_info["reaching_rew"] = x.clone()
-            x = torch.zeros(self.num_envs, dtype=ee_still_rew.dtype)
-            x = ee_still_rew
-            new_info["ee_still_rew"] = x.clone()
-            x = torch.zeros(self.num_envs, dtype=grasp_rew.dtype)
-            x = grasp_rew
-            new_info["grasp_rew"] = x.clone()
-            x = torch.zeros(self.num_envs, dtype=success_rew.dtype)
-            x = success_rew
-            new_info["success_rew"] = x.clone()
-            x = torch.zeros(self.num_envs, dtype=arm_resting_orientation_rew.dtype)
-            x = arm_resting_orientation_rew
-            new_info["arm_resting_orientation_rew"] = x.clone()
+            # ---------------------------------------------------------------
+            # colliisions
+            step_no_col_rew = 1 - torch.tanh(
+                3
+                * (
+                    torch.clamp(
+                        self.robot_force_mult * info["robot_force"],
+                        min=self.robot_force_penalty_min,
+                    )
+                    - self.robot_force_penalty_min
+                )
+            )
+            reward += step_no_col_rew
+
+            # cumulative collision penalty
+            cum_col_under_thresh_rew = (
+                info["robot_cumulative_force"] < self.robot_cumulative_force_limit
+            ).float()
+            reward += cum_col_under_thresh_rew
+            # ---------------------------------------------------------------
+
+            new_info["reaching_rew"] = reaching_rew.clone()
+            new_info["ee_still_rew"] = ee_still_rew.clone()
+            new_info["grasp_rew"] = grasp_rew.clone()
+            new_info["success_rew"] = success_rew.clone()
+            new_info["arm_resting_orientation_rew"] = (
+                arm_resting_orientation_rew.clone()
+            )
+            new_info["step_no_col_rew"] = step_no_col_rew.clone()
+            new_info["cum_col_under_thresh_rew"] = cum_col_under_thresh_rew.clone()
 
             if torch.any(not_grasped):
                 # penalty for torso moving up and down too much
@@ -519,19 +534,6 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
             reward[is_grasped] += is_grasped_reward
             reward[ee_rest] += ee_rest_reward
 
-            # step collision penalty
-            step_col_pen = torch.clamp(
-                self.robot_force_mult * info["robot_force"],
-                min=self.robot_force_penalty_min,
-            )
-            reward -= step_col_pen
-
-            # cumulative collision penalty
-            cum_col_pen = (
-                info["robot_cumulative_force"] > self.robot_cumulative_force_limit
-            ).float()
-            reward -= cum_col_pen
-
             for k in list(info.keys()):
                 info.pop(k, False)
 
@@ -542,7 +544,7 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
     def compute_normalized_dense_reward(
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
-        max_reward = 19.0
+        max_reward = 21.0
         return self.compute_dense_reward(obs=obs, action=action, info=info) / max_reward
 
     # -------------------------------------------------------------------------------------------------
