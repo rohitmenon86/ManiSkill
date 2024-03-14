@@ -5,6 +5,7 @@ import numpy as np
 import torch
 
 from mani_skill.envs.scenes.base_env import SceneManipulationEnv
+
 from mani_skill.envs.scenes.tasks import PickSequentialTaskEnv, SequentialTaskEnv
 from mani_skill.envs.scenes.tasks.planner import PickSubtask, plan_data_from_file
 from mani_skill.utils.scene_builder.ai2thor import (

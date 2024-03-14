@@ -105,8 +105,9 @@ class ReplicaCADSceneBuilder(SceneBuilder):
 
         # When creating objects that do not need to be moved ever, you must provide the pose of the object ahead of time
         # and use builder.build_static. Objects such as the scene background (also called a stage) fits in this category
-        builder.add_visual_from_file(bg_path, pose=bg_pose)
-        builder.add_nonconvex_collision_from_file(bg_path, pose=bg_pose)
+        builder.add_visual_from_file(bg_path)
+        builder.add_nonconvex_collision_from_file(bg_path)
+        builder.initial_pose = bg_pose
         self.bg = builder.build_static(name="scene_background")
 
         # For the purposes of physical simulation, we disable collisions between the Fetch robot and the scene background
@@ -116,8 +117,7 @@ class ReplicaCADSceneBuilder(SceneBuilder):
         # In the case of ReplicaCAD there are only dynamic and static objects. Since dynamic objects can be moved during simulation
         # we need to keep track of the initial poses of each dynamic actor we create.
         self._rcad_default_object_poses = []
-        obj_num = 0
-        for obj_meta in scene_json["object_instances"]:
+        for obj_num, obj_meta in enumerate(scene_json["object_instances"]):
 
             # Again, for any dataset you will have to figure out how they reference object files
             # Note that ASSET_DIR will always refer to the ~/.ms_data folder or whatever MS_ASSET_DIR is set to
@@ -139,7 +139,7 @@ class ReplicaCADSceneBuilder(SceneBuilder):
             # left multiplying by the offset quaternion we used for the stage/scene background as all assets in ReplicaCAD are rotated by 90 degrees
             pose = sapien.Pose(q=q) * sapien.Pose(pos, rot)
 
-            actor_name = f'{obj_meta["template_name"]}_{obj_num}'
+            actor_name = f'{obj_meta["template_name"]}-{obj_num}'
             # Neatly for simulation, ReplicaCAD specifies if an object is meant to be simulated as dynamic (can be moved like pots) or static (must stay still, like kitchen counters)
             if obj_meta["motion_type"] == "DYNAMIC":
                 builder.add_visual_from_file(visual_file)
@@ -160,13 +160,12 @@ class ReplicaCADSceneBuilder(SceneBuilder):
                 # Add dynamic objects to _rcad_movable_objects
                 self._rcad_movable_objects[actor_name] = actor
             elif obj_meta["motion_type"] == "STATIC":
-                builder.add_visual_from_file(visual_file, pose=pose)
+                builder.add_visual_from_file(visual_file)
                 # for static (and dynamic) objects you don't need to use pre convex decomposed meshes and instead can directly
                 # add the non convex collision mesh based on the visual mesh
-                builder.add_nonconvex_collision_from_file(visual_file, pose=pose)
+                builder.add_nonconvex_collision_from_file(visual_file)
+                builder.initial_pose = pose
                 actor = builder.build_static(name=actor_name)
-
-            obj_num += 1
 
             # Add dynamic objects to _rcad_objects
             self._rcad_objects[actor_name] = actor
