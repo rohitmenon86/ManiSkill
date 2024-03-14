@@ -133,7 +133,7 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
 
         return torch.hstack([pts, rots.unsqueeze(-1)]), dists
 
-    def _after_reconfigure(self):
+    def _after_reconfigure(self, options):
         with torch.device(self.device):
             self.scene_builder.initialize(torch.arange(self.num_envs))
 
@@ -245,9 +245,9 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
 
     # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-    def _initialize_episode(self, env_idx):
+    def _initialize_episode(self, env_idx, options):
         with torch.device(self.device):
-            super()._initialize_episode(env_idx)
+            super()._initialize_episode(env_idx, options)
             b = len(env_idx)
 
             xyz = torch.zeros((b, 3))

@@ -122,7 +122,7 @@ class SequentialTaskEnv(SceneManipulationEnv):
         assert all_equal(
             [len(plan) for plan in self.base_task_plans]
         ), "All parallel task plans must be the same length"
-        assert np.all(
+        assert all(
             [
                 all_same_type(parallel_subtasks)
                 for parallel_subtasks in zip(*self.base_task_plans)
@@ -199,13 +199,13 @@ class SequentialTaskEnv(SceneManipulationEnv):
         parallel_subtasks: Union[List[PickSubtask], List[PlaceSubtask]],
         name: str = None,
     ):
-        merged_obj = Actor._create_from_entities(
+        merged_obj = Actor.create_from_entities(
             [
                 self._get_actor(subtask.obj_id)._objs[i]
                 for i, subtask in enumerate(parallel_subtasks)
             ],
             scene=self._scene,
-            scene_mask=np.ones(self.num_envs, dtype=bool),
+            scene_idxs=torch.arange(self.num_envs, dtype=int),
         )
         if name is not None:
             merged_obj.name = (name,)
@@ -245,8 +245,8 @@ class SequentialTaskEnv(SceneManipulationEnv):
     # RESET/RECONFIGURE HANDLING
     # -------------------------------------------------------------------------------------------------
 
-    def _load_scene(self):
-        super()._load_scene()
+    def _load_scene(self, options):
+        super()._load_scene(options)
         self.ee_rest_pos_wrt_base = Pose.create_from_pq(
             p=self.EE_REST_POS_WRT_BASE, device=self.device
         )
@@ -262,8 +262,8 @@ class SequentialTaskEnv(SceneManipulationEnv):
             name="ee_rest_goal",
         )
 
-    def _initialize_episode(self, env_idx: torch.Tensor):
-        super()._initialize_episode(env_idx)
+    def _initialize_episode(self, env_idx: torch.Tensor, options):
+        super()._initialize_episode(env_idx, options)
         # TODO (arth): currently there's a bug where prev contacts/etc will maintain themselves somehow
         #       maybe bug will be fixed alter, but in meantime just step scene to get rid of old contacts
         # if not sapien.physx.is_gpu_enabled():
@@ -513,8 +513,7 @@ class SequentialTaskEnv(SceneManipulationEnv):
         robot_camera_pose = sapien_utils.look_at([-0.2, 0.5, 1], ([0.2, -0.2, 0]))
         robot_camera_config = CameraConfig(
             "render_camera",
-            robot_camera_pose.p,
-            robot_camera_pose.q,
+            robot_camera_pose,
             512,
             512,
             1.75,

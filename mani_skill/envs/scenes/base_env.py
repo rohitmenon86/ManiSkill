@@ -100,7 +100,7 @@ class SceneManipulationEnv(BaseEnv):
     def _load_lighting(self, options: dict):
         if self.scene_builder.builds_lighting:
             return
-        return super()._load_lighting()
+        return super()._load_lighting(options)
 
     def _load_scene(self, options: dict):
         self.scene_builder.build(
