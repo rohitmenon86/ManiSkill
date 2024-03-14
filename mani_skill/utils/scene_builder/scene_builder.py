@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Union, Tuple
 
 import sapien
 import numpy as np
@@ -51,7 +51,7 @@ class SceneBuilder:
     @property
     def default_object_poses(
         self,
-    ) -> Dict[Union[Actor, Articulation], Union[sapien.Pose, Pose]]:
+    ) -> List[Tuple[Union[Actor, Articulation], Union[Pose, sapien.Pose]]]:
         raise NotImplementedError()
 
     @property

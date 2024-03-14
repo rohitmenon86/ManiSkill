@@ -35,20 +35,24 @@ env: SceneManipulationEnv = gym.make(
     control_mode="pd_joint_delta_pos",
     reward_mode="dense",
     robot_uids="fetch",
-    scene_builder_cls=ReplicaCADSceneBuilder,
+    scene_builder_cls=ReplicaCADRearrangeSceneBuilder,
     # num_envs=2,
-    scene_idxs=0,  # 65,
+    scene_idxs=10,
 )
 
 # print(env.unwrapped._init_raw_obs)
 
 # print(env.observation_space.keys())
 
-obs, info = env.reset(seed=0)
+# env = RecordEpisode(env, output_dir=".", save_trajectory=False, info_on_video=False)
 
+obs, info = env.reset(seed=0)
+# env.step(np.zeros(env.action_space.shape))
 while True:
+    # for _ in range(50):
     env.step(np.zeros(env.action_space.shape))
     env.render()
+env.close()
 
 
 # SCENE_IDX_TO_APPLE_PLAN = {

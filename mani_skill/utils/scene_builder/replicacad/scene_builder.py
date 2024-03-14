@@ -48,6 +48,9 @@ class ReplicaCADSceneBuilder(SceneBuilder):
             self._rcad_scene_configs = scene_config_json["scenes"]
             if include_staging_scenes:
                 self._rcad_scene_configs += scene_config_json["staging_scenes"]
+        self._rcad_config_to_idx = dict(
+            zip(self._rcad_scene_configs, range(len(self._rcad_scene_configs)))
+        )
 
         # cache navigable positions from files
         # assumes navigable position files saved
@@ -153,9 +156,7 @@ class ReplicaCADSceneBuilder(SceneBuilder):
                 else:
                     builder.add_multiple_convex_collisions_from_file(collision_file)
                 actor = builder.build(name=actor_name)
-                self._rcad_default_object_poses.append(
-                    (actor, pose * sapien.Pose(p=[0, 0, 0.0]))
-                )
+                self._rcad_default_object_poses.append((actor, pose))
 
                 # Add dynamic objects to _rcad_movable_objects
                 self._rcad_movable_objects[actor_name] = actor
@@ -251,7 +252,7 @@ class ReplicaCADSceneBuilder(SceneBuilder):
 
         else:
             raise NotImplementedError(self.env.robot_uids)
-        for obj, pose in self._rcad_default_object_poses:
+        for obj, pose in self.default_object_poses:
             obj.set_pose(pose)
             if isinstance(obj, Articulation):
                 # note that during initialization you may only ever change poses/qpos of objects in scenes being reset
@@ -283,8 +284,8 @@ class ReplicaCADSceneBuilder(SceneBuilder):
     @property
     def default_object_poses(
         self,
-    ) -> Dict[Union[Actor, Articulation], Union[Pose, sapien.Pose]]:
-        raise self._rcad_default_object_poses
+    ) -> List[Tuple[Union[Actor, Articulation], Union[Pose, sapien.Pose]]]:
+        return self._rcad_default_object_poses
 
     @property
     def scene_objects(self) -> Dict[str, Actor]:
