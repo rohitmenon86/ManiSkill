@@ -36,7 +36,7 @@ IGNORE_FETCH_COLLISION_STRS = ["mat", "rug", "carpet"]
 class ReplicaCADSceneBuilder(SceneBuilder):
     builds_lighting = True  # we set this true because the ReplicaCAD dataset defines some lighting for us so we don't need the default option from ManiSkill
 
-    def __init__(self, env, robot_init_qpos_noise=0.02, include_staging_scenes=True):
+    def __init__(self, env, robot_init_qpos_noise=0.02, include_staging_scenes=False):
         super().__init__(env, robot_init_qpos_noise)
         # Scene datasets from any source generally have several configurations, each of which may involve changing object geometries, poses etc.
         # You should store this configuration information in the self._rcad_scene_configs list, which permits the code to sample from when
