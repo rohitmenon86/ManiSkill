@@ -16,7 +16,12 @@ from mani_skill.utils.scene_builder.ai2thor import (
 )
 from mani_skill.utils.scene_builder.replicacad import ReplicaCADSceneBuilder
 from mani_skill.utils.scene_builder.replicacad.rearrange import (
-    ReplicaCADRearrangeSceneBuilder,
+    ReplicaCADPrepareGroceriesTrainSceneBuilder,
+    ReplicaCADPrepareGroceriesValSceneBuilder,
+    ReplicaCADSetTableTrainSceneBuilder,
+    ReplicaCADSetTableValSceneBuilder,
+    ReplicaCADTidyHouseTrainSceneBuilder,
+    ReplicaCADTidyHouseValSceneBuilder,
 )
 from mani_skill.utils.wrappers import RecordEpisode
 
@@ -35,24 +40,27 @@ env: SceneManipulationEnv = gym.make(
     control_mode="pd_joint_delta_pos",
     reward_mode="dense",
     robot_uids="fetch",
-    scene_builder_cls=ReplicaCADRearrangeSceneBuilder,
+    scene_builder_cls=ReplicaCADSetTableTrainSceneBuilder,
     # num_envs=2,
-    scene_idxs=10,
+    scene_idxs=0,
 )
 
 # print(env.unwrapped._init_raw_obs)
 
 # print(env.observation_space.keys())
 
-# env = RecordEpisode(env, output_dir=".", save_trajectory=False, info_on_video=False)
+if render_mode != "human":
+    env = RecordEpisode(env, output_dir=".", save_trajectory=False, info_on_video=False)
 
 obs, info = env.reset(seed=0)
 # env.step(np.zeros(env.action_space.shape))
-while True:
-    # for _ in range(50):
+# while True:
+for _ in range(50 if render_mode != "human" else int(1e8)):
     env.step(np.zeros(env.action_space.shape))
     env.render()
 env.close()
+
+print(env.scene_builder.movable_objects.keys())
 
 
 # SCENE_IDX_TO_APPLE_PLAN = {

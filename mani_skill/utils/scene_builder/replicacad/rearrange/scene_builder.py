@@ -136,8 +136,8 @@ class ReplicaCADRearrangeSceneBuilder(ReplicaCADSceneBuilder):
 
     @property
     def scene_objects(self) -> Dict[str, Actor]:
-        return self._rcad_objects
+        return self._rearrange_objects
 
     @property
     def movable_objects(self) -> Dict[str, Actor]:
-        return self._rcad_movable_objects
+        return self._rearrange_movable_objects
