@@ -205,7 +205,7 @@ class AI2THORBaseSceneBuilder(SceneBuilder):
             if npy_fp.exists():
                 self._scene_navigable_positions[scene_idx] = np.load(npy_fp)
 
-    def disable_fetch_ground_collisions(self, bodies, and_base=False):
+    def disable_fetch_move_collisions(self, bodies, and_base=False):
         for body in bodies:
             for cs in body.get_collision_shapes():
                 cg = cs.get_collision_groups()
@@ -256,7 +256,7 @@ class AI2THORBaseSceneBuilder(SceneBuilder):
                 agent.robot.set_pose(
                     sapien.Pose(p=[*SCENE_IDX_TO_START_POS[self.scene_idx], 0.001])
                 )
-            self.disable_fetch_ground_collisions(self.bg._bodies)
+            self.disable_fetch_move_collisions(self.bg._bodies)
         else:
             raise NotImplementedError(self.env.robot_uids)
 
@@ -272,13 +272,9 @@ class AI2THORBaseSceneBuilder(SceneBuilder):
         return self._scene_navigable_positions[self.scene_idx]
 
     @property
-    def scene_objects(self) -> List[Actor]:
-        return list(self._scene_objects.values())
+    def scene_objects(self) -> Dict[str, Actor]:
+        return self._scene_objects
 
     @property
-    def movable_objects(self) -> List[Actor]:
-        return list(self._movable_objects.values())
-
-    @property
-    def movable_objects_by_id(self) -> Dict[str, Actor]:
+    def movable_objects(self) -> Dict[str, Actor]:
         return self._movable_objects

@@ -6,7 +6,7 @@ This code is also heavily commented to serve as a tutorial for how to build cust
 
 import json
 import os.path as osp
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 from pathlib import Path
 
 import numpy as np
@@ -25,6 +25,7 @@ from mani_skill.utils.scene_builder import SceneBuilder
 from mani_skill.utils.scene_builder.registration import register_scene_builder
 from mani_skill.utils.structs.articulation import Articulation
 from mani_skill.utils.structs.actor import Actor
+from mani_skill.utils.structs.pose import Pose
 
 DATASET_CONFIG_DIR = osp.join(osp.dirname(__file__), "metadata")
 
@@ -35,38 +36,41 @@ IGNORE_FETCH_COLLISION_STRS = ["mat", "rug", "carpet"]
 class ReplicaCADSceneBuilder(SceneBuilder):
     builds_lighting = True  # we set this true because the ReplicaCAD dataset defines some lighting for us so we don't need the default option from ManiSkill
 
-    def __init__(self, env, robot_init_qpos_noise=0.02):
+    def __init__(self, env, robot_init_qpos_noise=0.02, include_staging_scenes=True):
         super().__init__(env, robot_init_qpos_noise)
         # Scene datasets from any source generally have several configurations, each of which may involve changing object geometries, poses etc.
-        # You should store this configuration information in the self._scene_configs list, which permits the code to sample from when
+        # You should store this configuration information in the self._rcad_scene_configs list, which permits the code to sample from when
         # simulating more than one scene or performing reconfiguration
 
-        # for ReplicaCAD we have saved the list of all scene configuration files from the dataset to a local json file and create SceneConfig objects out of it
+        # for ReplicaCAD we have saved the list of all scene configuration files from the dataset to a local json file
         with open(osp.join(DATASET_CONFIG_DIR, "scene_configs.json")) as f:
-            self._scene_configs = json.load(f)["scenes"]
+            scene_config_json = json.load(f)
+            self._rcad_scene_configs = scene_config_json["scenes"]
+            if include_staging_scenes:
+                self._rcad_scene_configs += scene_config_json["staging_scenes"]
 
         # cache navigable positions from files
         # assumes navigable position files saved
-        self._scene_navigable_positions = [None] * len(self._scene_configs)
-        self.scene_idx = None
+        self._rcad_navigable_positions = dict(
+            (sc, None) for sc in self._rcad_scene_configs
+        )
+        self._rcad_scene_idx = None
 
-    def build(
-        self, scene: ManiSkillScene, scene_idx=0, convex_decomposition="none", **kwargs
-    ):
+    def build(self, scene: ManiSkillScene, scene_idx=0, **kwargs):
         """
         Given a ManiSkillScene, a sampled scene_idx, build/load the scene objects
 
-        scene_idx is an index corresponding to a sampled scene config in self._scene_configs. The code should...
+        scene_idx is an index corresponding to a sampled scene config in self._rcad_scene_configs. The code should...
         TODO (stao): scene_idx should probably be replaced with scene config?
 
         TODO (stao): provide a simple way in maybe SceneBuilder to override how to decide if an object should be dynamic or not?
         """
-        scene_cfg_path = self._scene_configs[scene_idx]
+        scene_cfg_path = self._rcad_scene_configs[scene_idx]
 
         # Keep track of movable and static objects and scene_idx for envs
-        self._scene_objects: Dict[str, Actor] = dict()
-        self._movable_objects: Dict[str, Actor] = dict()
-        self.scene_idx = scene_idx
+        self._rcad_objects: Dict[str, Actor] = dict()
+        self._rcad_movable_objects: Dict[str, Actor] = dict()
+        self._rcad_scene_idx = scene_idx
 
         # We read the json config file describing the scene setup for the selected ReplicaCAD scene
         with open(
@@ -106,12 +110,13 @@ class ReplicaCADSceneBuilder(SceneBuilder):
         self.bg = builder.build_static(name="scene_background")
 
         # For the purposes of physical simulation, we disable collisions between the Fetch robot and the scene background
-        self.disable_fetch_ground_collisions(self.bg._bodies)
+        self.disable_fetch_move_collisions(self.bg._bodies)
 
         # In scenes, there will always be dynamic objects, kinematic objects, and static objects.
         # In the case of ReplicaCAD there are only dynamic and static objects. Since dynamic objects can be moved during simulation
         # we need to keep track of the initial poses of each dynamic actor we create.
-        self.default_object_poses = []
+        self._rcad_default_object_poses = []
+        obj_num = 0
         for obj_meta in scene_json["object_instances"]:
 
             # Again, for any dataset you will have to figure out how they reference object files
@@ -134,7 +139,7 @@ class ReplicaCADSceneBuilder(SceneBuilder):
             # left multiplying by the offset quaternion we used for the stage/scene background as all assets in ReplicaCAD are rotated by 90 degrees
             pose = sapien.Pose(q=q) * sapien.Pose(pos, rot)
 
-            actor_name = obj_meta["template_name"]
+            actor_name = f'{obj_meta["template_name"]}_{obj_num}'
             # Neatly for simulation, ReplicaCAD specifies if an object is meant to be simulated as dynamic (can be moved like pots) or static (must stay still, like kitchen counters)
             if obj_meta["motion_type"] == "DYNAMIC":
                 builder.add_visual_from_file(visual_file)
@@ -148,12 +153,12 @@ class ReplicaCADSceneBuilder(SceneBuilder):
                 else:
                     builder.add_multiple_convex_collisions_from_file(collision_file)
                 actor = builder.build(name=actor_name)
-                self.default_object_poses.append(
+                self._rcad_default_object_poses.append(
                     (actor, pose * sapien.Pose(p=[0, 0, 0.0]))
                 )
 
-                # Add dynamic objects to _movable_objects
-                self._movable_objects[actor_name] = actor
+                # Add dynamic objects to _rcad_movable_objects
+                self._rcad_movable_objects[actor_name] = actor
             elif obj_meta["motion_type"] == "STATIC":
                 builder.add_visual_from_file(visual_file, pose=pose)
                 # for static (and dynamic) objects you don't need to use pre convex decomposed meshes and instead can directly
@@ -161,12 +166,14 @@ class ReplicaCADSceneBuilder(SceneBuilder):
                 builder.add_nonconvex_collision_from_file(visual_file, pose=pose)
                 actor = builder.build_static(name=actor_name)
 
-            # Add dynamic objects to _scene_objects
-            self._scene_objects[actor_name] = actor
+            obj_num += 1
+
+            # Add dynamic objects to _rcad_objects
+            self._rcad_objects[actor_name] = actor
 
             # Certain objects, such as mats, rugs, and carpets, are on the ground and should not collide with the Fetch base
             if np.any([x in actor_name for x in IGNORE_FETCH_COLLISION_STRS]):
-                self.disable_fetch_ground_collisions(actor._bodies, and_base=True)
+                self.disable_fetch_move_collisions(actor._bodies, and_base=True)
 
         # ReplicaCAD also provides articulated objects
         for articulated_meta in scene_json["articulated_object_instances"]:
@@ -186,11 +193,11 @@ class ReplicaCADSceneBuilder(SceneBuilder):
                 urdf_loader.scale = articulated_meta["uniform_scale"]
             articulation = urdf_loader.load(urdf_path)
             pose = sapien.Pose(q=q) * sapien.Pose(pos, rot)
-            self.default_object_poses.append((articulation, pose))
+            self._rcad_default_object_poses.append((articulation, pose))
 
             # for now classify articulated objects as "movable" object
-            self._movable_objects[articulation.name] = articulation
-            self._scene_objects[articulation.name] = articulation
+            self._rcad_movable_objects[articulation.name] = articulation
+            self._rcad_objects[articulation.name] = articulation
 
         # ReplicaCAD also specifies where to put lighting
         with open(
@@ -215,17 +222,19 @@ class ReplicaCADSceneBuilder(SceneBuilder):
                 )
         scene.set_ambient_light([0.3, 0.3, 0.3])
 
-        if self._scene_navigable_positions[scene_idx] is None:
+        if self._rcad_navigable_positions[self._rcad_scene_configs[scene_idx]] is None:
             npy_fp = (
                 Path(ASSET_DIR)
                 / "scene_datasets/replica_cad_dataset/configs/scenes"
                 / (
-                    Path(self.scene_configs[scene_idx]).stem
+                    Path(self._rcad_scene_configs[scene_idx]).stem
                     + f".{str(self.env.robot_uids)}.navigable_positions.npy"
                 )
             )
             if npy_fp.exists():
-                self._scene_navigable_positions[scene_idx] = np.load(npy_fp)
+                self._rcad_navigable_positions[self._rcad_scene_configs[scene_idx]] = (
+                    np.load(npy_fp)
+                )
 
     def initialize(self, env_idx: torch.Tensor):
         if self.env.robot_uids == "fetch":
@@ -241,14 +250,14 @@ class ReplicaCADSceneBuilder(SceneBuilder):
 
         else:
             raise NotImplementedError(self.env.robot_uids)
-        for obj, pose in self.default_object_poses:
+        for obj, pose in self._rcad_default_object_poses:
             obj.set_pose(pose)
             if isinstance(obj, Articulation):
                 # note that during initialization you may only ever change poses/qpos of objects in scenes being reset
                 obj.set_qpos(obj.qpos[0] * 0)
         # TODO (stao): settle objects for a few steps then save poses again on first run?
 
-    def disable_fetch_ground_collisions(self, bodies, and_base=False):
+    def disable_fetch_move_collisions(self, bodies, and_base=False):
         for body in bodies:
             for cs in body.get_collision_shapes():
                 cg = cs.get_collision_groups()
@@ -259,27 +268,27 @@ class ReplicaCADSceneBuilder(SceneBuilder):
 
     @property
     def scene_configs(self):
-        return self._scene_configs
+        return self._rcad_scene_configs
 
     @property
     def navigable_positions(self) -> np.ndarray:
         assert isinstance(
-            self.scene_idx, int
+            self._rcad_scene_idx, int
         ), "Must build scene before getting navigable positions"
-        return self._scene_navigable_positions[self.scene_idx]
+        return self._rcad_navigable_positions[
+            self._rcad_scene_configs[self._rcad_scene_idx]
+        ]
 
     @property
-    def scene_objects(self) -> List[Actor]:
-        return list(self._scene_objects.values())
+    def default_object_poses(
+        self,
+    ) -> Dict[Union[Actor, Articulation], Union[Pose, sapien.Pose]]:
+        raise self._rcad_default_object_poses
 
     @property
-    def movable_objects(self) -> List[Actor]:
-        return list(self._movable_objects.values())
+    def scene_objects(self) -> Dict[str, Actor]:
+        return self._rcad_objects
 
     @property
-    def scene_objects_by_id(self) -> Dict[str, Actor]:
-        return self._scene_objects
-
-    @property
-    def movable_objects_by_id(self) -> Dict[str, Actor]:
-        return self._movable_objects
+    def movable_objects(self) -> Dict[str, Actor]:
+        return self._rcad_movable_objects

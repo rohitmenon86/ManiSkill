@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, Union
 
 import sapien
+import numpy as np
 
 if TYPE_CHECKING:
     from mani_skill.envs.sapien_env import BaseEnv
 
 from mani_skill.utils.structs.actor import Actor
+from mani_skill.utils.structs.articulation import Articulation
+from mani_skill.utils.structs.pose import Pose
 
 
 class SceneBuilder:
@@ -42,17 +45,19 @@ class SceneBuilder:
         return self.env._scene
 
     @property
-    def scene_objects(self) -> List[Actor]:
+    def navigable_positions(self) -> np.ndarray:
         raise NotImplementedError()
 
     @property
-    def movable_objects(self) -> List[Actor]:
-        raise NotImplementedError()
-    
-    @property
-    def scene_objects_by_id(self) -> Dict[str, Actor]:
+    def default_object_poses(
+        self,
+    ) -> Dict[Union[Actor, Articulation], Union[sapien.Pose, Pose]]:
         raise NotImplementedError()
 
     @property
-    def movable_objects_by_id(self) -> Dict[str, Actor]:
+    def scene_objects(self) -> Dict[str, Actor]:
+        raise NotImplementedError()
+
+    @property
+    def movable_objects(self) -> Dict[str, Actor]:
         raise NotImplementedError()

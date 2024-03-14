@@ -192,7 +192,7 @@ class SequentialTaskEnv(SceneManipulationEnv):
         # self.max_episode_steps = torch.sum(self.task_horizons)
 
     def _get_actor(self, actor_id: str):
-        return self.scene_builder.movable_objects_by_id[actor_id]
+        return self.scene_builder.movable_objects[actor_id]
 
     def _create_merged_actor_from_subtasks(
         self,
