@@ -74,16 +74,14 @@ class PegInsertionSideEnv(BaseEnv):
     @property
     def _sensor_configs(self):
         pose = sapien_utils.look_at([0, -0.3, 0.2], [0, 0, 0.1])
-        return [
-            CameraConfig("base_camera", pose.p, pose.q, 128, 128, np.pi / 2, 0.01, 100)
-        ]
+        return [CameraConfig("base_camera", pose, 128, 128, np.pi / 2, 0.01, 100)]
 
     @property
     def _human_render_camera_configs(self):
         pose = sapien_utils.look_at([0.5, -0.5, 0.8], [0.05, -0.1, 0.4])
-        return CameraConfig("render_camera", pose.p, pose.q, 512, 512, 1, 0.01, 100)
+        return CameraConfig("render_camera", pose, 512, 512, 1, 0.01, 100)
 
-    def _load_scene(self):
+    def _load_scene(self, options: dict):
         with torch.device(self.device):
             self.table_scene = TableSceneBuilder(self)
             self.table_scene.build()
@@ -114,8 +112,7 @@ class PegInsertionSideEnv(BaseEnv):
             boxes = []
 
             for i in range(self.num_envs):
-                scene_mask = np.zeros((self.num_envs), dtype=bool)
-                scene_mask[i] = True
+                scene_idxs = [i]
                 length = lengths[i]
                 radius = radii[i]
                 builder = self._scene.create_actor_builder()
@@ -142,7 +139,7 @@ class PegInsertionSideEnv(BaseEnv):
                     half_size=[length / 2, radius, radius],
                     material=mat,
                 )
-                builder.set_scene_mask(scene_mask)
+                builder.set_scene_idxs(scene_idxs)
                 peg = builder.build(f"peg_{i}")
 
                 # box with hole
@@ -155,7 +152,7 @@ class PegInsertionSideEnv(BaseEnv):
                 builder = _build_box_with_hole(
                     self._scene, inner_radius, outer_radius, depth, center=centers[i]
                 )
-                builder.set_scene_mask(scene_mask)
+                builder.set_scene_idxs(scene_idxs)
                 box = builder.build_kinematic(f"box_with_hole_{i}")
 
                 pegs.append(peg)
@@ -163,7 +160,7 @@ class PegInsertionSideEnv(BaseEnv):
             self.peg = Actor.merge(pegs, "peg")
             self.box = Actor.merge(boxes, "box_with_hole")
 
-    def _initialize_episode(self, env_idx: torch.Tensor):
+    def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
         with torch.device(self.device):
             b = len(env_idx)
             self.table_scene.initialize(env_idx)

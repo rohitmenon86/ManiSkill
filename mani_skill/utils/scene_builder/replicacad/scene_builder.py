@@ -176,7 +176,9 @@ class ReplicaCADSceneBuilder(SceneBuilder):
                 self.disable_fetch_move_collisions(actor._bodies, and_base=True)
 
         # ReplicaCAD also provides articulated objects
-        for articulated_meta in scene_json["articulated_object_instances"]:
+        for i, articulated_meta in enumerate(
+            scene_json["articulated_object_instances"]
+        ):
 
             template_name = articulated_meta["template_name"]
             pos = articulated_meta["translation"]
@@ -186,7 +188,7 @@ class ReplicaCADSceneBuilder(SceneBuilder):
                 f"scene_datasets/replica_cad_dataset/urdf/{template_name}/{template_name}.urdf",
             )
             urdf_loader = scene.create_urdf_loader()
-            urdf_loader.name = template_name
+            urdf_loader.name = f"{template_name}-{i}"
             urdf_loader.fix_root_link = articulated_meta["fixed_base"]
             urdf_loader.disable_self_collisions = True
             if "uniform_scale" in articulated_meta:

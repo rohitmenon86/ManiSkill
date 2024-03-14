@@ -118,14 +118,16 @@ class BaseEnv(gym.Env):
 
     _sensors: Dict[str, BaseSensor]
     """all sensors configured in this environment"""
-    _sensor_cfgs: Dict[str, BaseSensorConfig]
-    """all sensor configurations"""
-    _agent_camera_cfgs: Dict[str, CameraConfig]
-
+    _all_sensor_configs_parsed: Dict[str, BaseSensorConfig]
+    """all sensor configurations parsed from self._sensor_configs and agent._sensor_configs"""
+    _agent_sensor_configs_parsed: Dict[str, BaseSensorConfig]
+    """all agent sensor configs parsed from agent._sensor_configs"""
     _human_render_cameras: Dict[str, Camera]
     """cameras used for rendering the current environment retrievable via `env.render_rgb_array()`. These are not used to generate observations"""
-    _human_render_camera_cfgs: Dict[str, CameraConfig]
+    _human_render_camera_configs: Dict[str, CameraConfig]
     """all camera configurations for cameras used for human render"""
+    _human_render_camera_configs_parsed: Dict[str, CameraConfig]
+    """all camera configurations parsed from self._human_render_camera_configs"""
 
     _hidden_objects: List[Union[Actor, Articulation]] = []
     """list of objects that are hidden during rendering when generating visual observations / running render_cameras()"""
@@ -155,8 +157,8 @@ class BaseEnv(gym.Env):
         self.num_envs = num_envs
         self.reconfiguration_freq = reconfiguration_freq
         self._reconfig_counter = 0
-        self._custom_sensor_cfgs = sensor_cfgs
-        self._custom_human_render_camera_cfgs = human_render_camera_cfgs
+        self._custom_sensor_configs = sensor_cfgs
+        self._custom_human_render_camera_configs = human_render_camera_cfgs
         self.robot_uids = robot_uids
         if self.SUPPORTED_ROBOTS is not None:
             assert robot_uids in self.SUPPORTED_ROBOTS
@@ -210,7 +212,7 @@ class BaseEnv(gym.Env):
         self._sim_freq = self.sim_cfg.sim_freq
         self._control_freq = self.sim_cfg.control_freq
         if self._sim_freq % self._control_freq != 0:
-            logger.warning(
+            logger.warn(
                 f"sim_freq({self._sim_freq}) is not divisible by control_freq({self._control_freq}).",
             )
         self._sim_steps_per_control = self._sim_freq // self._control_freq
@@ -291,7 +293,7 @@ class BaseEnv(gym.Env):
     def _default_sim_cfg(self):
         return SimConfig()
     
-    def _load_agent(self):
+    def _load_agent(self, options: dict):
         agents = []
         robot_uids = self.robot_uids
         if robot_uids is not None:
@@ -325,7 +327,7 @@ class BaseEnv(gym.Env):
     ) -> Union[
         BaseSensorConfig, Sequence[BaseSensorConfig], Dict[str, BaseSensorConfig]
     ]:
-        """Register (non-agent) sensors for the environment."""
+        """Add (non-agent) sensors to the environment by returning sensor configurations"""
         return []
     @property
     def _human_render_camera_configs(
@@ -333,7 +335,7 @@ class BaseEnv(gym.Env):
     ) -> Union[
         BaseSensorConfig, Sequence[BaseSensorConfig], Dict[str, BaseSensorConfig]
     ]:
-        """Register cameras for rendering."""
+        """Add cameras for rendering when using render_mode='rgb_array' """
         return []
 
     @property
@@ -509,7 +511,7 @@ class BaseEnv(gym.Env):
     # -------------------------------------------------------------------------- #
     # Reconfigure
     # -------------------------------------------------------------------------- #
-    def _reconfigure(self):
+    def _reconfigure(self, options = dict()):
         """Reconfigure the simulation scene instance.
         This function clears the previous scene and creates a new one.
 
@@ -524,70 +526,71 @@ class BaseEnv(gym.Env):
         self._clear()
         # load everything into the scene first before initializing anything
         self._setup_scene()
-        self._load_agent()
-        self._load_scene()
+        self._load_agent(options)
+        self._load_scene(options)
 
-        self._load_lighting()
+        self._load_lighting(options)
 
         if sapien.physx.is_gpu_enabled():
             self._scene._setup_gpu()
             self._scene._gpu_fetch_all()
         # for GPU sim, we have to setup sensors after we call setup gpu in order to enable loading mounted sensors as they depend on GPU buffer data
-        self._setup_sensors()
+        self._setup_sensors(options)
         if self._viewer is not None:
             self._setup_viewer()
         self._reconfig_counter = self.reconfiguration_freq
 
-    def _after_reconfigure(self):
-        """Add code here that should run immediately after self._reconfigure() is called. The torch RNG context is still active so RNG is still
+    def _after_reconfigure(self, options):
+        """Add code here that should run immediately after self._reconfigure is called. The torch RNG context is still active so RNG is still
         seeded here by self._episode_seed. This is useful if you need to run something that only happens after reconfiguration but need the
         GPU initialized so that you can check e.g. collisons, poses etc."""
 
-    def _load_scene(self):
-        """Loads all objects like actors and articulations into the scene. Called by `self._reconfigure`"""
+    def _load_scene(self, options: dict):
+        """Loads all objects like actors and articulations into the scene. Called by `self._reconfigure`. Given options argument
+        is the same options dictionary passed to the self.reset function"""
 
     # TODO (stao): refactor this into sensor API
-    def _setup_sensors(self):
+    def _setup_sensors(self, options: dict):
         """Setup sensor configurations and the sensor objects in the scene. Called by `self._reconfigure`"""
 
         # First create all the configurations
-        self._sensor_cfgs = OrderedDict()
+        self._all_sensor_configs_parsed = OrderedDict()
 
         # Add task/external sensors
-        self._sensor_cfgs.update(parse_camera_cfgs(self._sensor_configs))
+        self._all_sensor_configs_parsed.update(parse_camera_cfgs(self._sensor_configs))
 
         # Add agent sensors
-        self._agent_camera_cfgs = OrderedDict()
-        self._agent_camera_cfgs = parse_camera_cfgs(self.agent._sensor_configs)
-        self._sensor_cfgs.update(self._agent_camera_cfgs)
+        self._agent_sensor_configs_parsed = OrderedDict()
+        self._agent_sensor_configs_parsed = parse_camera_cfgs(self.agent._sensor_configs)
+        self._all_sensor_configs_parsed.update(self._agent_sensor_configs_parsed)
 
         # Add human render camera configs
-        self._human_render_camera_cfgs = parse_camera_cfgs(
+        self._human_render_camera_configs_parsed = parse_camera_cfgs(
             self._human_render_camera_configs
         )
 
         # Override camera configurations with user supplied configurations
-        if self._custom_sensor_cfgs is not None:
+        if self._custom_sensor_configs is not None:
             update_camera_cfgs_from_dict(
-                self._sensor_cfgs, self._custom_sensor_cfgs
+                self._all_sensor_configs_parsed, self._custom_sensor_configs
             )
-        if self._custom_human_render_camera_cfgs is not None:
+        if self._custom_human_render_camera_configs is not None:
             update_camera_cfgs_from_dict(
-                self._human_render_camera_cfgs,
-                self._custom_human_render_camera_cfgs,
+                self._human_render_camera_configs_parsed,
+                self._custom_human_render_camera_configs,
             )
 
         # Now we instantiate the actual sensor objects
         self._sensors = OrderedDict()
 
-        for uid, sensor_cfg in self._sensor_cfgs.items():
-            if uid in self._agent_camera_cfgs:
+        for uid, sensor_cfg in self._all_sensor_configs_parsed.items():
+            if uid in self._agent_sensor_configs_parsed:
                 articulation = self.agent.robot
             else:
                 articulation = None
             if isinstance(sensor_cfg, StereoDepthCameraConfig):
                 sensor_cls = StereoDepthCamera
-            else:
+            elif isinstance(sensor_cfg, CameraConfig):
                 sensor_cls = Camera
             self._sensors[uid] = sensor_cls(
                 sensor_cfg,
@@ -597,7 +600,7 @@ class BaseEnv(gym.Env):
 
         # Cameras for rendering only
         self._human_render_cameras = OrderedDict()
-        for uid, camera_cfg in self._human_render_camera_cfgs.items():
+        for uid, camera_cfg in self._human_render_camera_configs_parsed.items():
             self._human_render_cameras[uid] = Camera(
                 camera_cfg,
                 self._scene,
@@ -606,7 +609,7 @@ class BaseEnv(gym.Env):
         self._scene.sensors = self._sensors
         self._scene.human_render_cameras = self._human_render_cameras
 
-    def _load_lighting(self):
+    def _load_lighting(self, options: dict):
         """Loads lighting into the scene. Called by `self._reconfigure`. If not overriden will set some simple default lighting"""
 
         shadow = self.enable_shadow
@@ -651,8 +654,8 @@ class BaseEnv(gym.Env):
         if reconfigure:
             with torch.random.fork_rng():
                 torch.manual_seed(seed=self._episode_seed)
-                self._reconfigure()
-                self._after_reconfigure()
+                self._reconfigure(options)
+                self._after_reconfigure(options)
         if "env_idx" in options:
             env_idx = options["env_idx"]
             self._scene._reset_mask = torch.zeros(
@@ -678,7 +681,7 @@ class BaseEnv(gym.Env):
         self.agent.reset()
         with torch.random.fork_rng():
             torch.manual_seed(self._episode_seed)
-            self._initialize_episode(env_idx)
+            self._initialize_episode(env_idx, options)
         # reset the reset mask back to all ones so any internal code in maniskill can continue to manipulate all scenes at once as usual
         self._scene._reset_mask = torch.ones(
             self.num_envs, dtype=bool, device=self.device
@@ -716,7 +719,7 @@ class BaseEnv(gym.Env):
             self._episode_seed = seed
         self._episode_rng = np.random.RandomState(self._episode_seed)
 
-    def _initialize_episode(self, env_idx: torch.Tensor):
+    def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
         """Initialize the episode, e.g., poses of actors and articulations, as well as task relevant data like randomizing
         goal positions
         """
@@ -820,9 +823,9 @@ class BaseEnv(gym.Env):
         for _ in range(self._sim_steps_per_control):
             self.agent.before_simulation_step()
             self._before_simulation_step()
-            with sapien.profile("step_i"):
-                self._scene.step()
+            self._scene.step()
             self._after_simulation_step()
+        self._after_control_step()
         if physx.is_gpu_enabled():
             self._scene._gpu_fetch_all()
         return action
@@ -834,8 +837,10 @@ class BaseEnv(gym.Env):
 
         This function may also return additional data that has been computed (e.g. is the robot grasping some object) that may be
         reused when generating observations and rewards.
+
+        By default if not overriden this function returns an empty dictionary
         """
-        raise NotImplementedError
+        return dict()
 
     def get_info(self):
         """
@@ -850,12 +855,16 @@ class BaseEnv(gym.Env):
         return info
 
     def _before_control_step(self):
-        pass
+        """Code that runs before each action has been taken.
+        On GPU simulation this is called before observations are fetched from the GPU buffers."""
+    def _after_control_step(self):
+        """Code that runs after each action has been taken.
+        On GPU simulation this is called right before observations are fetched from the GPU buffers."""
 
     def _before_simulation_step(self):
-        """Code to run right before physx_system.step is called"""
+        """Code to run right before each physx_system.step is called"""
     def _after_simulation_step(self):
-        """Code to run right after physx_system.step is called"""
+        """Code to run right after each physx_system.step is called"""
 
     # -------------------------------------------------------------------------- #
     # Simulation and other gym interfaces
@@ -1010,7 +1019,7 @@ class BaseEnv(gym.Env):
         control_window.show_camera_linesets = False
         if "render_camera" in self._human_render_cameras:
             self._viewer.set_camera_pose(
-                self._human_render_cameras["render_camera"].camera.global_pose
+                self._human_render_cameras["render_camera"].camera.global_pose[0].sp
             )
 
     def render_human(self):
@@ -1019,10 +1028,6 @@ class BaseEnv(gym.Env):
         if self._viewer is None:
             self._viewer = Viewer()
             self._setup_viewer()
-            if "render_camera" in self._human_render_cameras:
-                self._viewer.set_camera_pose(
-                    self._human_render_cameras["render_camera"].camera.global_pose
-                )
         if physx.is_gpu_enabled() and self._scene._gpu_sim_initialized:
             self.physx_system.sync_poses_gpu_to_cpu()
         self._viewer.render()
