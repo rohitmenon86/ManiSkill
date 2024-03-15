@@ -61,3 +61,7 @@ class SceneBuilder:
     @property
     def movable_objects(self) -> Dict[str, Actor]:
         raise NotImplementedError()
+
+    @property
+    def articulations(self) -> Dict[str, Articulation]:
+        raise NotImplementedError()

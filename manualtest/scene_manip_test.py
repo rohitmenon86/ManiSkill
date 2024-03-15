@@ -1,4 +1,5 @@
 import os
+import sys
 
 import gymnasium as gym
 import numpy as np
@@ -32,7 +33,6 @@ render_mode = (
 )
 print("RENDER_MODE", render_mode)
 
-
 env: SceneManipulationEnv = gym.make(
     "SceneManipulation-v1",
     obs_mode="rgbd",
@@ -42,7 +42,7 @@ env: SceneManipulationEnv = gym.make(
     robot_uids="fetch",
     scene_builder_cls=ReplicaCADSetTableTrainSceneBuilder,
     # num_envs=2,
-    scene_idxs=0,
+    scene_idxs=int(sys.argv[-1]),
 )
 
 # print(env.unwrapped._init_raw_obs)
@@ -55,7 +55,13 @@ if render_mode != "human":
 obs, info = env.reset(seed=0)
 # env.step(np.zeros(env.action_space.shape))
 # while True:
-for _ in range(50 if render_mode != "human" else int(1e8)):
+for _ in range(10 if render_mode != "human" else int(1e8)):
+    # print(
+    #     env.agent.robot.get_net_contact_forces(
+    #         [x.name for x in env.agent.robot.get_links()]
+    #     ),
+    #     env.agent.robot.pose.p,
+    # )
     env.step(np.zeros(env.action_space.shape))
     env.render()
 env.close()

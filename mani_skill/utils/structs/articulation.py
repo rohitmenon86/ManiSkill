@@ -265,9 +265,9 @@ class Articulation(BaseStruct[physx.PhysxArticulation]):
                 bodies = []
                 for k in link_names:
                     bodies += self.link_map[k]._bodies
-                self._net_contact_force_queries[
-                    tuple(link_names)
-                ] = self.px.gpu_create_contact_body_impulse_query(bodies)
+                self._net_contact_force_queries[tuple(link_names)] = (
+                    self.px.gpu_create_contact_body_impulse_query(bodies)
+                )
             query = self._net_contact_force_queries[tuple(link_names)]
             self.px.gpu_query_contact_body_impulses(query)
             return (

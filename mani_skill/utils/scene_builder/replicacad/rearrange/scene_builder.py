@@ -46,7 +46,10 @@ class ReplicaCADRearrangeSceneBuilder(ReplicaCADSceneBuilder):
         # init base replicacad scene builder first
         super().__init__(env, robot_init_qpos_noise, include_staging_scenes=True)
 
-        # for ReplicaCAD we have saved the list of all scene configuration files from the dataset to a local json file
+        self._config_to_idx = dict(
+            zip(self._scene_configs, range(len(self._scene_configs)))
+        )
+
         self._rearrange_scene_configs = []
         for task_name in self.task_names:
             task, split = task_name.split(":")
@@ -80,15 +83,7 @@ class ReplicaCADRearrangeSceneBuilder(ReplicaCADSceneBuilder):
 
         super().build(
             scene,
-            scene_idx=self._rcad_config_to_idx[self._rearrange_base_scene_config],
-        )
-
-        self._rearrange_default_object_poses: List[
-            Tuple[Union[Actor, Articulation], Union[sapien.Pose, Pose]]
-        ] = self._rcad_default_object_poses.copy()
-        self._rearrange_objects: Dict[str, Actor] = self._rcad_objects.copy()
-        self._rearrange_movable_objects: Dict[str, Actor] = (
-            self._rcad_movable_objects.copy()
+            scene_idx=self._config_to_idx[self._rearrange_base_scene_config],
         )
 
         q = transforms3d.quaternions.axangle2quat(
@@ -101,43 +96,25 @@ class ReplicaCADRearrangeSceneBuilder(ReplicaCADSceneBuilder):
             builder, _ = build_actor_ycb(
                 actor_id, scene, name=actor_name, return_builder=True
             )
+
+            pose = sapien.Pose(q=q, p=[0, 0, 0.01]) * sapien.Pose(matrix=transformation)
+            temp_pose = sapien.Pose(q=pose.q) * sapien.Pose(q=q).inv()
+            pose.q = temp_pose.q
+
+            # TODO (arth): return builder option from scene builder and handle static/not in seq task
             actor = builder.build(name=actor_name)
+            self._default_object_poses.append((actor, pose))
+            self._movable_objects[actor_name] = actor
 
-            aabb = (
-                actor._objs[0]
-                .find_component_by_type(sapien.render.RenderBodyComponent)
-                .compute_global_aabb_tight()
-            )
-            height = aabb[1, 2] - aabb[0, 2]
-            pose = sapien.Pose(q=q, p=[0, 0, height]) * sapien.Pose(
-                matrix=transformation
-            )
-
-            self._rearrange_default_object_poses.append((actor, pose))
-            self._rearrange_objects[actor_name] = actor
-            self._rearrange_movable_objects[actor_name] = actor
+            self._scene_objects[actor_name] = actor
 
     @property
     def scene_configs(self):
         return self._rearrange_scene_configs
 
     @property
-    def navigable_positions(
-        self,
-    ) -> List[Tuple[Union[Actor, Articulation], Union[Pose, sapien.Pose]]]:
+    def navigable_positions(self) -> np.ndarray:
         assert isinstance(
-            self._rcad_scene_idx, int
+            self._scene_idx, int
         ), "Must build scene before getting navigable positions"
-        return self._rcad_navigable_positions[self._rearrange_base_scene_config]
-
-    @property
-    def default_object_poses(self) -> np.ndarray:
-        return self._rearrange_default_object_poses
-
-    @property
-    def scene_objects(self) -> Dict[str, Actor]:
-        return self._rearrange_objects
-
-    @property
-    def movable_objects(self) -> Dict[str, Actor]:
-        return self._rearrange_movable_objects
+        return self._navigable_positions[self._rearrange_base_scene_config]
