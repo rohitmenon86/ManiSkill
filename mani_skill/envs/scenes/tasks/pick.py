@@ -253,6 +253,7 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
             xyz = torch.zeros((b, 3))
             xyz[:, :2] = torch.rand((b, 2)) * 0.2 - 0.12
             xyz += self.subtask_objs[0].pose.p
+            xyz[..., 2] += 0.005
 
             qs = quaternion_raw_multiply(
                 randomization.random_quaternions(
