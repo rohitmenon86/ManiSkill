@@ -49,7 +49,6 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
     """
 
     # TODO (arth): add locomotion, open fridge, close fridge
-    # TODO (arth) maybe?: clean this up, e.g. configs per subtask **type** or smth
     pick_cfg = PickSubtaskConfig(
         horizon=200,
         ee_rest_thresh=0.05,
@@ -96,8 +95,6 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
     # -------------------------------------------------------------------------------------------------
     # COLLISION TRACKING
     # -------------------------------------------------------------------------------------------------
-    # TODO (arth): better version w/ new collision API
-    # -------------------------------------------------------------------------------------------------
 
     def reset(self, *args, **kwargs):
         self.robot_cumulative_force = torch.zeros(self.num_envs, device=self.device)
@@ -106,8 +103,7 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
     # -------------------------------------------------------------------------------------------------
     # INIT RANDOMIZATION
     # -------------------------------------------------------------------------------------------------
-    # TODO (arth): integrate with navigable base position thing once that's done
-    #       also maybe check that obj won't fall when noise is added
+    # TODO (arth): maybe check that obj won't fall when noise is added
     # vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 
     def _get_navigable_spawn_positions_with_rots_and_dists(self, center_x, center_y):
@@ -263,8 +259,6 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
             )
             self.subtask_objs[0].set_pose(Pose.create_from_pq(xyz, qs))
 
-            # TODO (arth): figure out rejection pipeline including arm/base randomization
-            #       tbh not sure how to do yet, might just increase collision thresholds in training
             self.resting_qpos = torch.tensor(self.agent.RESTING_QPOS[3:-2])
 
             b = len(env_idx)

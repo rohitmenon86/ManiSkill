@@ -52,18 +52,19 @@ env: SceneManipulationEnv = gym.make(
 if render_mode != "human":
     env = RecordEpisode(env, output_dir=".", save_trajectory=False, info_on_video=False)
 
-obs, info = env.reset(seed=0)
 # env.step(np.zeros(env.action_space.shape))
 # while True:
-for _ in range(10 if render_mode != "human" else int(1e8)):
-    # print(
-    #     env.agent.robot.get_net_contact_forces(
-    #         [x.name for x in env.agent.robot.get_links()]
-    #     ),
-    #     env.agent.robot.pose.p,
-    # )
-    env.step(np.zeros(env.action_space.shape))
-    env.render()
+for _ in range(2):
+    obs, info = env.reset(seed=0)
+    for _ in range(10 if render_mode != "human" else int(1e8)):
+        # print(
+        #     env.agent.robot.get_net_contact_forces(
+        #         [x.name for x in env.agent.robot.get_links()]
+        #     ),
+        #     env.agent.robot.pose.p,
+        # )
+        env.step(np.zeros(env.action_space.shape))
+        env.render()
 env.close()
 
 print(env.scene_builder.movable_objects.keys())

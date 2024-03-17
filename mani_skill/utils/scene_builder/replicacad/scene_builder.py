@@ -293,9 +293,11 @@ class ReplicaCADSceneBuilder(SceneBuilder):
                 )
                 last_movable_obj_pos = new_movable_obj_pos
 
-        self._settled_object_poses[scene_config] = [
-            (actor, actor.pose) for actor in self.movable_objects.values()
-        ]
+        self._settled_object_poses[scene_config] = []
+        for actor, pose in self._default_object_poses:
+            if isinstance(actor, Actor):
+                pose = actor.pose
+            self._settled_object_poses[scene_config].append((actor, pose))
 
     def disable_fetch_move_collisions(self, bodies, and_base=False):
         for body in bodies:
