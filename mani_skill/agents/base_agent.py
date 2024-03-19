@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from typing import TYPE_CHECKING, Dict, Union, List
+from typing import TYPE_CHECKING, Dict, List, Union
 
 import numpy as np
 import sapien
@@ -79,7 +79,7 @@ class BaseAgent:
         self.set_control_mode()
 
     @property
-    def _sensor_configs(self) -> List[str, BaseSensorConfig]:
+    def _sensor_configs(self) -> List[BaseSensorConfig]:
         return []
 
     @property
