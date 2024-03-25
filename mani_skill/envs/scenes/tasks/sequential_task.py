@@ -65,7 +65,7 @@ class SequentialTaskEnv(SceneManipulationEnv):
     )
     place_cfg = PlaceSubtaskConfig(
         horizon=200,
-        obj_goal_thresh=0.015,
+        obj_goal_thresh=0.15,
         ee_rest_thresh=0.05,
     )
     task_cfgs: Dict[str, SubtaskConfig] = dict(
