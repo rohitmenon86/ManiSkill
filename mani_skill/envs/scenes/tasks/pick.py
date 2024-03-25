@@ -131,6 +131,7 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
 
     def _after_reconfigure(self, options):
         with torch.device(self.device):
+            super()._after_reconfigure(options)
             self.scene_builder.initialize(torch.arange(self.num_envs))
 
             if physx.is_gpu_enabled():
@@ -392,25 +393,6 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
 
             # ---------------------------------------------------
 
-            new_info = dict()
-            for k in [
-                "elapsed_steps",
-                "success",
-                "fail",
-                "is_grasped",
-                "robot_force",
-                "robot_cumulative_force",
-            ]:
-                if k in info:
-                    if isinstance(info[k], torch.Tensor):
-                        new_info[k] = info[k].clone()
-                    elif isinstance(info[k], np.ndarray):
-                        new_info[k] = info[k].copy()
-                    else:
-                        new_info[k] = info[k]
-
-            new_info["robot_to_obj_dist"] = robot_to_obj_dist
-
             # reaching reward
             tcp_to_obj_dist = torch.norm(obj_pos - tcp_pos, dim=1)
             reaching_rew = 3 * (1 - torch.tanh(5 * tcp_to_obj_dist))
@@ -458,16 +440,6 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
             reward += cum_col_under_thresh_rew
             # ---------------------------------------------------------------
 
-            new_info["reaching_rew"] = reaching_rew.clone()
-            new_info["ee_still_rew"] = ee_still_rew.clone()
-            new_info["grasp_rew"] = grasp_rew.clone()
-            new_info["success_rew"] = success_rew.clone()
-            new_info["arm_resting_orientation_rew"] = (
-                arm_resting_orientation_rew.clone()
-            )
-            new_info["step_no_col_rew"] = step_no_col_rew.clone()
-            new_info["cum_col_under_thresh_rew"] = cum_col_under_thresh_rew.clone()
-
             if torch.any(not_grasped):
                 # penalty for torso moving up and down too much
                 tqvel_z = self.agent.robot.qvel[..., 3][not_grasped]
@@ -483,13 +455,6 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
                     )
                 )
                 not_grasped_reward += ee_over_obj_rew
-
-                x = torch.zeros(self.num_envs, dtype=torso_not_moving_rew.dtype)
-                x[not_grasped] = torso_not_moving_rew
-                new_info["torso_not_moving_rew"] = x.clone()
-                x = torch.zeros(self.num_envs, dtype=ee_over_obj_rew.dtype)
-                x[not_grasped] = ee_over_obj_rew
-                new_info["ee_over_obj_rew"] = x.clone()
 
             if torch.any(is_grasped):
                 # not_grasped reward has max of +2
@@ -508,31 +473,15 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
                 base_still_rew = 1 - torch.tanh(torch.norm(bqvel, dim=1))
                 is_grasped_reward += base_still_rew
 
-                x = torch.zeros(self.num_envs, dtype=place_rew.dtype)
-                x[is_grasped] = place_rew
-                new_info["place_rew"] = x.clone()
-                x = torch.zeros(self.num_envs, dtype=base_still_rew.dtype)
-                x[is_grasped] = base_still_rew
-                new_info["base_still_rew"] = x.clone()
-
             if torch.any(ee_rest):
                 qvel = self.agent.robot.qvel[..., :-2][ee_rest]
                 static_rew = 1 - torch.tanh(torch.norm(qvel, dim=1))
                 ee_rest_reward += static_rew
 
-                x = torch.zeros(self.num_envs, dtype=static_rew.dtype)
-                x[ee_rest] = static_rew
-                new_info["static_rew"] = x.clone()
-
             # add rewards to specific envs
             reward[not_grasped] += not_grasped_reward
             reward[is_grasped] += is_grasped_reward
             reward[ee_rest] += ee_rest_reward
-
-            for k in list(info.keys()):
-                info.pop(k, False)
-
-            info.update(new_info)
 
         return reward
 
