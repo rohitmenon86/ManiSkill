@@ -155,11 +155,10 @@ class SequentialTaskEnv(SceneManipulationEnv):
                         parallel_subtasks, name=merged_obj_name
                     )
                 )
+                # NOTE (arth): poses can't be set before gpu set up, which is done after scene loaded
+                #       so, need to wait until _after_reconfigure is called to set subtask goal poses
                 self.subtask_goals.append(
                     self._make_goal(
-                        pos=torch.tensor(
-                            subtask.goal_pos for subtask in parallel_subtasks
-                        ),
                         radius=self.place_cfg.obj_goal_thresh,
                         name=merged_goal_name,
                     )
@@ -168,7 +167,9 @@ class SequentialTaskEnv(SceneManipulationEnv):
                 self.task_plan.append(
                     PlaceSubtask(
                         obj_id=merged_obj_name,
-                        goal_pos=[subtask.goal_pos for subtask in parallel_subtasks],
+                        goal_pos=[
+                            list(subtask.goal_pos) for subtask in parallel_subtasks
+                        ],
                     )
                 )
 
@@ -261,6 +262,13 @@ class SequentialTaskEnv(SceneManipulationEnv):
             radius=0.05,
             name="ee_rest_goal",
         )
+
+    def _after_reconfigure(self, options):
+        with torch.device(self.device):
+            for subtask_goal, subtask in zip(self.subtask_goals, self.task_plan):
+                if subtask_goal is not None:
+                    subtask: PlaceSubtask
+                    subtask_goal.set_pose(Pose.create_from_pq(p=subtask.goal_pos))
 
     def _initialize_episode(self, env_idx: torch.Tensor, options):
         super()._initialize_episode(env_idx, options)
