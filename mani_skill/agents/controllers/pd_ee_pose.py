@@ -1,7 +1,11 @@
 from dataclasses import dataclass
 from typing import Sequence, Union
 
-import fast_kinematics
+# NOTE (arth): fast_kinematics seems not to work on cuda 11?
+try:
+    import fast_kinematics
+except:
+    pass
 import numpy as np
 import sapien.physx as physx
 import torch
@@ -78,9 +82,9 @@ class PDEEPosController(PDJointPosController):
             self._target_pose = self.ee_pose_at_base
         else:
             # TODO (stao): this is a strange way to mask setting individual batched pose parts
-            self._target_pose.raw_pose[
-                self.scene._reset_mask
-            ] = self.ee_pose_at_base.raw_pose[self.scene._reset_mask]
+            self._target_pose.raw_pose[self.scene._reset_mask] = (
+                self.ee_pose_at_base.raw_pose[self.scene._reset_mask]
+            )
 
     def compute_ik(self, target_pose: Pose, action: Array, max_iterations=100):
         # Assume the target pose is defined in the base frame

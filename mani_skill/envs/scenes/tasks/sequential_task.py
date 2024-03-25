@@ -65,7 +65,7 @@ class SequentialTaskEnv(SceneManipulationEnv):
     )
     place_cfg = PlaceSubtaskConfig(
         horizon=200,
-        obj_goal_thresh=0.015,
+        obj_goal_thresh=0.15,
         ee_rest_thresh=0.05,
     )
     task_cfgs: Dict[str, SubtaskConfig] = dict(
@@ -400,7 +400,7 @@ class SequentialTaskEnv(SceneManipulationEnv):
             <= ee_rest_thresh
         )
         is_static = self.agent.is_static(threshold=0.2)[env_idx]
-        return is_grasped & obj_at_goal & ee_rest & is_static, is_grasped
+        return ~is_grasped & obj_at_goal & ee_rest & is_static, is_grasped
 
     # -------------------------------------------------------------------------------------------------
 
@@ -455,14 +455,14 @@ class SequentialTaskEnv(SceneManipulationEnv):
             if isinstance(subtask, PickSubtask):
                 obj_pose_wrt_base[env_idx] = vectorize_pose(
                     base_pose_inv * self.subtask_objs[subtask_num].pose
-                )
+                )[env_idx]
             elif isinstance(subtask, PlaceSubtask):
                 obj_pose_wrt_base[env_idx] = vectorize_pose(
                     base_pose_inv * self.subtask_objs[subtask_num].pose
-                )
+                )[env_idx]
                 goal_pos_wrt_base[env_idx] = (
                     base_pose_inv * self.subtask_goals[subtask_num].pose
-                ).p
+                ).p[env_idx]
             else:
                 raise AttributeError(f"{subtask.type} {type(subtask)} not supported")
 
