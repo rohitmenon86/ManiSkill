@@ -419,8 +419,11 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             grasped_not_rest = info["is_grasped"] & ~obj_at_goal
             grasped_not_rest_reward = torch.zeros_like(reward[grasped_not_rest])
 
-            obj_rest = ~info["is_grasped"] & obj_at_goal
-            obj_rest_reward = torch.zeros_like(reward[obj_rest])
+            obj_rest_grasped = info["is_grasped"] & obj_at_goal
+            obj_rest_grasped_reward = torch.zeros_like(reward[obj_rest_grasped])
+
+            obj_rest_not_grasped = ~info["is_grasped"] & obj_at_goal
+            obj_rest_not_grasped_reward = torch.zeros_like(reward[obj_rest_not_grasped])
 
             ee_to_rest_dist = torch.norm(tcp_pos - rest_pos, dim=1)
             ee_rest = (
@@ -445,6 +448,15 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             ee_vel = self.agent.tcp.linear_velocity
             ee_still_rew = 1 - torch.tanh(torch.norm(ee_vel, dim=1) / 5)
             reward += ee_still_rew
+
+            new_info["ee_still_rew"] = ee_still_rew
+
+            # penalty for object moving too much
+            obj_vel = torch.norm(
+                self.subtask_objs[0].linear_velocity, dim=1
+            ) + torch.norm(self.subtask_objs[0].angular_velocity, dim=1)
+            obj_still_rew = 1 - torch.tanh(obj_vel / 5)
+            reward += obj_still_rew
 
             new_info["ee_still_rew"] = ee_still_rew
 
@@ -515,12 +527,11 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 new_info["ee_over_obj_rew"] = x
 
             if torch.any(grasped_not_rest):
-                # not_grasped_not_rest reward has max of +2
-                # so, we add +2 to grasped reward so reward only increases as task proceeds
+                # add prev step max reward
                 grasped_not_rest_reward += 2
 
                 # add reward for grasping obj
-                grasped_not_rest_reward += 2 * info["is_grasped"][grasped_not_rest]
+                grasped_not_rest_reward += 2
 
                 # place reward
                 place_rew = 5 * (1 - torch.tanh(obj_to_goal_dist[grasped_not_rest]))
@@ -530,26 +541,46 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 x[grasped_not_rest] = place_rew
                 new_info["place_rew"] = x
 
-            if torch.any(obj_rest):
-                # grasped_not_rest reward has max of +7
-                # so, we add +7 to grasped reward so reward only increases as task proceeds
-                obj_rest_reward += 9
-
-                # rest reward
-                rest_rew = 5 * (1 - torch.tanh(3 * ee_to_rest_dist[obj_rest]))
-                obj_rest_reward += rest_rew
+                # penalty for torso moving up and down too much
+                tqvel_z = self.agent.robot.qvel[..., 3][grasped_not_rest]
+                torso_not_moving_rew = 1 - torch.tanh(5 * torch.abs(tqvel_z))
+                grasped_not_rest_reward += torso_not_moving_rew
 
                 x = torch.zeros_like(reward)
-                x[obj_rest] = rest_rew
+                x[grasped_not_rest] = torso_not_moving_rew
+                new_info["torso_not_moving_rew"] = x
+
+            if torch.any(obj_rest_grasped):
+                # add prev step max reward
+                obj_rest_grasped_reward += 10
+
+                # add reward for object at goal
+                obj_rest_grasped_reward += 2
+
+            if torch.any(obj_rest_not_grasped):
+                # add prev step max reward
+                obj_rest_not_grasped_reward += 12
+
+                # add reward for object at goal and not grasped
+                obj_rest_not_grasped_reward += 2
+
+                # rest reward
+                rest_rew = 5 * (
+                    1 - torch.tanh(3 * ee_to_rest_dist[obj_rest_not_grasped])
+                )
+                obj_rest_not_grasped_reward += rest_rew
+
+                x = torch.zeros_like(reward)
+                x[obj_rest_not_grasped] = rest_rew
                 new_info["rest_rew"] = x
 
                 # penalty for base moving or rotating too much
-                bqvel = self.agent.robot.qvel[..., :3][obj_rest]
+                bqvel = self.agent.robot.qvel[..., :3][obj_rest_not_grasped]
                 base_still_rew = 1 - torch.tanh(torch.norm(bqvel, dim=1))
-                obj_rest_reward += base_still_rew
+                obj_rest_not_grasped_reward += base_still_rew
 
                 x = torch.zeros_like(reward)
-                x[obj_rest] = base_still_rew
+                x[obj_rest_not_grasped] = base_still_rew
                 new_info["base_still_rew"] = x
 
             if torch.any(ee_rest):
@@ -564,10 +595,11 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             # add rewards to specific envs
             reward[not_grasped_not_rest] += not_grasped_not_rest_reward
             reward[grasped_not_rest] += grasped_not_rest_reward
-            reward[obj_rest] += obj_rest_reward
+            reward[obj_rest_grasped] += obj_rest_grasped_reward
+            reward[obj_rest_not_grasped] += obj_rest_not_grasped_reward
             reward[ee_rest] += ee_rest_reward
 
-            new_info["reward"] = reward
+            new_info["reward_unscaled"] = reward
 
             keys = list(info.keys())
             for k in keys:
@@ -580,7 +612,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
     def compute_normalized_dense_reward(
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
-        max_reward = 24.0
+        max_reward = 28.0
         return self.compute_dense_reward(obs=obs, action=action, info=info) / max_reward
 
     # -------------------------------------------------------------------------------------------------

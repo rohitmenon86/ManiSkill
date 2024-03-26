@@ -455,14 +455,14 @@ class SequentialTaskEnv(SceneManipulationEnv):
             if isinstance(subtask, PickSubtask):
                 obj_pose_wrt_base[env_idx] = vectorize_pose(
                     base_pose_inv * self.subtask_objs[subtask_num].pose
-                )
+                )[env_idx]
             elif isinstance(subtask, PlaceSubtask):
                 obj_pose_wrt_base[env_idx] = vectorize_pose(
                     base_pose_inv * self.subtask_objs[subtask_num].pose
-                )
+                )[env_idx]
                 goal_pos_wrt_base[env_idx] = (
                     base_pose_inv * self.subtask_goals[subtask_num].pose
-                ).p
+                ).p[env_idx]
             else:
                 raise AttributeError(f"{subtask.type} {type(subtask)} not supported")
 
