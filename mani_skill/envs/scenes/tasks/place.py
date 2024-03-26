@@ -437,13 +437,6 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
             new_info = copy.deepcopy(info)
 
-            # reaching reward
-            tcp_to_obj_dist = torch.norm(obj_pos - tcp_pos, dim=1)
-            reaching_rew = 1 - torch.tanh(5 * tcp_to_obj_dist)
-            reward += reaching_rew
-
-            new_info["reaching_rew"] = reaching_rew
-
             # penalty for ee jittering too much
             ee_vel = self.agent.tcp.linear_velocity
             ee_still_rew = 1 - torch.tanh(torch.norm(ee_vel, dim=1) / 5)
@@ -526,6 +519,17 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 x[not_grasped_not_rest] = ee_over_obj_rew
                 new_info["ee_over_obj_rew"] = x
 
+                # reaching reward
+                tcp_to_obj_dist = torch.norm(
+                    obj_pos[not_grasped_not_rest] - tcp_pos[not_grasped_not_rest], dim=1
+                )
+                reaching_rew = 1 - torch.tanh(5 * tcp_to_obj_dist)
+                not_grasped_not_rest_reward += reaching_rew
+
+                x = torch.zeros_like(reward)
+                x[not_grasped_not_rest] = reaching_rew
+                new_info["reaching_rew"] = x
+
             if torch.any(grasped_not_rest):
                 # add prev step max reward
                 grasped_not_rest_reward += 2
@@ -550,16 +554,27 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 x[grasped_not_rest] = torso_not_moving_rew
                 new_info["torso_not_moving_rew"] = x
 
+                # reaching reward
+                tcp_to_obj_dist = torch.norm(
+                    obj_pos[grasped_not_rest] - tcp_pos[grasped_not_rest], dim=1
+                )
+                reaching_rew = 1 - torch.tanh(5 * tcp_to_obj_dist)
+                grasped_not_rest_reward += reaching_rew
+
+                x = torch.zeros_like(reward)
+                x[grasped_not_rest] = reaching_rew
+                new_info["reaching_rew"] = x
+
             if torch.any(obj_rest_grasped):
                 # add prev step max reward
-                obj_rest_grasped_reward += 10
+                obj_rest_grasped_reward += 11
 
                 # add reward for object at goal
                 obj_rest_grasped_reward += 2
 
             if torch.any(obj_rest_not_grasped):
                 # add prev step max reward
-                obj_rest_not_grasped_reward += 12
+                obj_rest_not_grasped_reward += 13
 
                 # add reward for object at goal and not grasped
                 obj_rest_not_grasped_reward += 2
@@ -612,7 +627,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
     def compute_normalized_dense_reward(
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
-        max_reward = 28.0
+        max_reward = 29.0
         return self.compute_dense_reward(obs=obs, action=action, info=info) / max_reward
 
     # -------------------------------------------------------------------------------------------------
