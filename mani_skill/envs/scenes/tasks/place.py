@@ -528,7 +528,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
                 x = torch.zeros_like(reward)
                 x[not_grasped_not_rest] = reaching_rew
-                new_info["reaching_rew"] = x
+                new_info["ngnr_reaching_rew"] = x
 
             if torch.any(grasped_not_rest):
                 # add prev step max reward
@@ -578,7 +578,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
                 x = torch.zeros_like(reward)
                 x[grasped_not_rest] = reaching_rew
-                new_info["reaching_rew"] = x
+                new_info["gnr_reaching_rew"] = x
 
             if torch.any(obj_rest_grasped):
                 # add prev step max reward
