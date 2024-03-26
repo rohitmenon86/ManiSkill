@@ -545,6 +545,21 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 x[grasped_not_rest] = place_rew
                 new_info["place_rew"] = x
 
+                # rew for obj over goal
+                obj_over_goal_rew = 1 - torch.tanh(
+                    5
+                    * torch.norm(
+                        obj_pos[..., :2][grasped_not_rest]
+                        - goal_pos[..., :2][grasped_not_rest],
+                        dim=1,
+                    )
+                )
+                grasped_not_rest_reward += obj_over_goal_rew
+
+                x = torch.zeros_like(reward)
+                x[grasped_not_rest] = obj_over_goal_rew
+                new_info["obj_over_goal_rew"] = x
+
                 # penalty for torso moving up and down too much
                 tqvel_z = self.agent.robot.qvel[..., 3][grasped_not_rest]
                 torso_not_moving_rew = 1 - torch.tanh(5 * torch.abs(tqvel_z))
@@ -567,14 +582,14 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
             if torch.any(obj_rest_grasped):
                 # add prev step max reward
-                obj_rest_grasped_reward += 11
+                obj_rest_grasped_reward += 12
 
                 # add reward for object at goal
                 obj_rest_grasped_reward += 2
 
             if torch.any(obj_rest_not_grasped):
                 # add prev step max reward
-                obj_rest_not_grasped_reward += 13
+                obj_rest_not_grasped_reward += 14
 
                 # add reward for object at goal and not grasped
                 obj_rest_not_grasped_reward += 2
@@ -627,7 +642,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
     def compute_normalized_dense_reward(
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
-        max_reward = 29.0
+        max_reward = 30.0
         return self.compute_dense_reward(obs=obs, action=action, info=info) / max_reward
 
     # -------------------------------------------------------------------------------------------------
