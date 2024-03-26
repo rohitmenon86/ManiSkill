@@ -26,6 +26,7 @@ from pathlib import Path
 from tqdm import tqdm
 import itertools
 import pickle
+import copy
 
 
 PLACE_OBS_EXTRA_KEYS = [
@@ -431,19 +432,27 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
             # ---------------------------------------------------
 
+            new_info = copy.deepcopy(info)
+
             # reaching reward
             tcp_to_obj_dist = torch.norm(obj_pos - tcp_pos, dim=1)
             reaching_rew = 1 - torch.tanh(5 * tcp_to_obj_dist)
             reward += reaching_rew
+
+            new_info["reaching_rew"] = reaching_rew
 
             # penalty for ee jittering too much
             ee_vel = self.agent.tcp.linear_velocity
             ee_still_rew = 1 - torch.tanh(torch.norm(ee_vel, dim=1) / 5)
             reward += ee_still_rew
 
+            new_info["ee_still_rew"] = ee_still_rew
+
             # success reward
             success_rew = 3 * info["success"]
             reward += success_rew
+
+            new_info["success_rew"] = success_rew
 
             # encourage arm and torso in "resting" orientation
             arm_to_resting_diff = torch.norm(
@@ -452,6 +461,8 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             )
             arm_resting_orientation_rew = 1 - torch.tanh(arm_to_resting_diff / 5)
             reward += arm_resting_orientation_rew
+
+            new_info["arm_resting_orientation_rew"] = arm_resting_orientation_rew
 
             # ---------------------------------------------------------------
             # colliisions
@@ -467,11 +478,15 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             )
             reward += step_no_col_rew
 
+            new_info["step_no_col_rew"] = step_no_col_rew
+
             # cumulative collision penalty
             cum_col_under_thresh_rew = (
                 info["robot_cumulative_force"] < self.robot_cumulative_force_limit
             ).float()
             reward += cum_col_under_thresh_rew
+
+            new_info["cum_col_under_thresh_rew"] = cum_col_under_thresh_rew
             # ---------------------------------------------------------------
 
             if torch.any(not_grasped_not_rest):
@@ -479,6 +494,10 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 tqvel_z = self.agent.robot.qvel[..., 3][not_grasped_not_rest]
                 torso_not_moving_rew = 1 - torch.tanh(5 * torch.abs(tqvel_z))
                 not_grasped_not_rest_reward += torso_not_moving_rew
+
+                x = torch.zeros_like(reward)
+                x[not_grasped_not_rest] = torso_not_moving_rew
+                new_info["torso_not_moving_rew"] = x
 
                 # penalty for ee not over obj
                 ee_over_obj_rew = 1 - torch.tanh(
@@ -491,6 +510,10 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 )
                 not_grasped_not_rest_reward += ee_over_obj_rew
 
+                x = torch.zeros_like(reward)
+                x[not_grasped_not_rest] = ee_over_obj_rew
+                new_info["ee_over_obj_rew"] = x
+
             if torch.any(grasped_not_rest):
                 # not_grasped_not_rest reward has max of +2
                 # so, we add +2 to grasped reward so reward only increases as task proceeds
@@ -500,27 +523,43 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 grasped_not_rest_reward += 2 * info["is_grasped"][grasped_not_rest]
 
                 # place reward
-                place_rew = 3 * (1 - torch.tanh(3 * obj_to_goal_dist[grasped_not_rest]))
+                place_rew = 5 * (1 - torch.tanh(obj_to_goal_dist[grasped_not_rest]))
                 grasped_not_rest_reward += place_rew
+
+                x = torch.zeros_like(reward)
+                x[grasped_not_rest] = place_rew
+                new_info["place_rew"] = x
 
             if torch.any(obj_rest):
                 # grasped_not_rest reward has max of +7
                 # so, we add +7 to grasped reward so reward only increases as task proceeds
-                obj_rest_reward += 7
+                obj_rest_reward += 9
 
                 # rest reward
                 rest_rew = 5 * (1 - torch.tanh(3 * ee_to_rest_dist[obj_rest]))
                 obj_rest_reward += rest_rew
+
+                x = torch.zeros_like(reward)
+                x[obj_rest] = rest_rew
+                new_info["rest_rew"] = x
 
                 # penalty for base moving or rotating too much
                 bqvel = self.agent.robot.qvel[..., :3][obj_rest]
                 base_still_rew = 1 - torch.tanh(torch.norm(bqvel, dim=1))
                 obj_rest_reward += base_still_rew
 
+                x = torch.zeros_like(reward)
+                x[obj_rest] = base_still_rew
+                new_info["base_still_rew"] = x
+
             if torch.any(ee_rest):
                 qvel = self.agent.robot.qvel[..., :-2][ee_rest]
                 static_rew = 1 - torch.tanh(torch.norm(qvel, dim=1))
                 ee_rest_reward += static_rew
+
+                x = torch.zeros_like(reward)
+                x[ee_rest] = static_rew
+                new_info["static_rew"] = x
 
             # add rewards to specific envs
             reward[not_grasped_not_rest] += not_grasped_not_rest_reward
@@ -528,12 +567,20 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             reward[obj_rest] += obj_rest_reward
             reward[ee_rest] += ee_rest_reward
 
+            new_info["reward"] = reward
+
+            keys = list(info.keys())
+            for k in keys:
+                info.pop(k, False)
+            for k, v in new_info.items():
+                info[k] = v
+
         return reward
 
     def compute_normalized_dense_reward(
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
-        max_reward = 22.0
+        max_reward = 24.0
         return self.compute_dense_reward(obs=obs, action=action, info=info) / max_reward
 
     # -------------------------------------------------------------------------------------------------
