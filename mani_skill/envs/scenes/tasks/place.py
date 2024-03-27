@@ -426,12 +426,10 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             new_info = copy.deepcopy(info)
 
             # obj place reward
-            place_rew = 5 * (1 - torch.tanh(obj_to_goal_dist[obj_not_at_goal]))
-            obj_not_at_goal_reward += place_rew
+            place_rew = 5 * (1 - torch.tanh(obj_to_goal_dist))
+            reward += place_rew
 
-            x = torch.zeros_like(reward)
-            x[obj_not_at_goal] = place_rew
-            new_info["place_rew"] = x
+            new_info["place_rew"] = place_rew
 
             # penalty for ee jittering too much
             ee_vel = self.agent.tcp.linear_velocity
@@ -518,6 +516,9 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             if torch.any(obj_at_goal):
                 # add prev step max rew
                 obj_at_goal_reward += 2
+
+                # obj_left_at_goal
+                obj_at_goal_reward += 2 * ~info["is_grasped"][obj_at_goal]
 
                 # rest reward
                 rest_rew = 5 * (1 - torch.tanh(3 * ee_to_rest_dist[obj_at_goal]))
