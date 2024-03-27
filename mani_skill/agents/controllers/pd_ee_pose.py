@@ -85,6 +85,9 @@ class PDEEPosController(PDJointPosController):
     def compute_ik(self, target_pose: Pose, action: Array, max_iterations=100):
         # Assume the target pose is defined in the base frame
         if physx.is_gpu_enabled():
+            assert (
+                self.config.use_delta == True
+            ), "GPU ee control only supports delta actions at the moment"
             jacobian = (
                 self.fast_kinematics_model.jacobian_mixed_frame_pytorch(self.qpos)
                 .view(-1, 7, 6)
@@ -115,6 +118,7 @@ class PDEEPosController(PDJointPosController):
 
     def compute_target_pose(self, prev_ee_pose_at_base, action):
         # Keep the current rotation and change the position
+
         if self.config.use_delta:
             delta_pose = Pose.create(action)
 
@@ -127,7 +131,6 @@ class PDEEPosController(PDJointPosController):
         else:
             assert self.config.frame == "base", self.config.frame
             target_pose = Pose.create(action)
-
         return target_pose
 
     def set_action(self, action: Array):
@@ -239,7 +242,9 @@ class PDEEPoseController(PDEEPosController):
                 euler_angles_to_matrix(target_rot, "XYZ")
             )
             # target_quat = Rotation.from_rotvec(target_rot).as_quat()[[3, 0, 1, 2]]
-            target_pose = Pose.create_from_pq(target_pos, target_quat)
+            target_pose = self.articulation.pose.inv() * Pose.create_from_pq(
+                target_pos, target_quat
+            )
 
         return target_pose
 

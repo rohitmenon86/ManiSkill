@@ -96,6 +96,32 @@ class Panda(BaseAgent):
             ee_link=self.ee_link_name,
             urdf_path=self.urdf_path,
         )
+        arm_pd_ee_pos = PDEEPosControllerConfig(
+            self.arm_joint_names,
+            None,
+            None,
+            self.arm_stiffness,
+            self.arm_damping,
+            self.arm_force_limit,
+            use_delta=False,
+            frame="base",
+            ee_link=self.ee_link_name,
+            urdf_path=self.urdf_path,
+            normalize_action=False,
+        )
+        arm_pd_ee_pose = PDEEPoseControllerConfig(
+            self.arm_joint_names,
+            None,
+            None,
+            self.arm_stiffness,
+            self.arm_damping,
+            self.arm_force_limit,
+            use_delta=False,
+            frame="base",
+            ee_link=self.ee_link_name,
+            urdf_path=self.urdf_path,
+            normalize_action=False,
+        )
         arm_pd_ee_delta_pose = PDEEPoseControllerConfig(
             self.arm_joint_names,
             -0.1,
@@ -165,6 +191,8 @@ class Panda(BaseAgent):
                 arm=arm_pd_joint_delta_pos, gripper=gripper_pd_joint_pos
             ),
             pd_joint_pos=dict(arm=arm_pd_joint_pos, gripper=gripper_pd_joint_pos),
+            pd_ee_pos=dict(arm=arm_pd_ee_pos, gripper=gripper_pd_joint_pos),
+            pd_ee_pose=dict(arm=arm_pd_ee_pose, gripper=gripper_pd_joint_pos),
             pd_ee_delta_pos=dict(arm=arm_pd_ee_delta_pos, gripper=gripper_pd_joint_pos),
             pd_ee_delta_pose=dict(
                 arm=arm_pd_ee_delta_pose, gripper=gripper_pd_joint_pos
