@@ -412,30 +412,26 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
             obj_to_goal_dist = torch.norm(obj_pos - goal_pos, dim=1)
             obj_at_goal = obj_to_goal_dist <= self.place_cfg.obj_goal_thresh
+            obj_at_goal_reward = torch.zeros_like(reward[obj_at_goal])
 
-            not_grasped_not_rest = ~info["is_grasped"] & ~obj_at_goal
-            not_grasped_not_rest_reward = torch.zeros_like(reward[not_grasped_not_rest])
-
-            grasped_not_rest = info["is_grasped"] & ~obj_at_goal
-            grasped_not_rest_reward = torch.zeros_like(reward[grasped_not_rest])
-
-            obj_rest_grasped = info["is_grasped"] & obj_at_goal
-            obj_rest_grasped_reward = torch.zeros_like(reward[obj_rest_grasped])
-
-            obj_rest_not_grasped = ~info["is_grasped"] & obj_at_goal
-            obj_rest_not_grasped_reward = torch.zeros_like(reward[obj_rest_not_grasped])
+            obj_not_at_goal = ~obj_at_goal
+            obj_not_at_goal_reward = torch.zeros_like(reward[obj_not_at_goal])
 
             ee_to_rest_dist = torch.norm(tcp_pos - rest_pos, dim=1)
-            ee_rest = (
-                ~info["is_grasped"]
-                & obj_at_goal
-                & (ee_to_rest_dist <= self.place_cfg.ee_rest_thresh)
-            )
+            ee_rest = obj_at_goal & (ee_to_rest_dist <= self.place_cfg.ee_rest_thresh)
             ee_rest_reward = torch.zeros_like(reward[ee_rest])
 
             # ---------------------------------------------------
 
             new_info = copy.deepcopy(info)
+
+            # obj place reward
+            place_rew = 5 * (1 - torch.tanh(obj_to_goal_dist[obj_not_at_goal]))
+            obj_not_at_goal_reward += place_rew
+
+            x = torch.zeros_like(reward)
+            x[obj_not_at_goal] = place_rew
+            new_info["place_rew"] = x
 
             # penalty for ee jittering too much
             ee_vel = self.agent.tcp.linear_velocity
@@ -494,123 +490,50 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             new_info["cum_col_under_thresh_rew"] = cum_col_under_thresh_rew
             # ---------------------------------------------------------------
 
-            if torch.any(not_grasped_not_rest):
-                # penalty for torso moving up and down too much
-                tqvel_z = self.agent.robot.qvel[..., 3][not_grasped_not_rest]
-                torso_not_moving_rew = 1 - torch.tanh(5 * torch.abs(tqvel_z))
-                not_grasped_not_rest_reward += torso_not_moving_rew
-
-                x = torch.zeros_like(reward)
-                x[not_grasped_not_rest] = torso_not_moving_rew
-                new_info["torso_not_moving_rew"] = x
-
-                # penalty for ee not over obj
-                ee_over_obj_rew = 1 - torch.tanh(
-                    5
-                    * torch.norm(
-                        obj_pos[..., :2][not_grasped_not_rest]
-                        - tcp_pos[..., :2][not_grasped_not_rest],
-                        dim=1,
-                    )
-                )
-                not_grasped_not_rest_reward += ee_over_obj_rew
-
-                x = torch.zeros_like(reward)
-                x[not_grasped_not_rest] = ee_over_obj_rew
-                new_info["ee_over_obj_rew"] = x
-
-                # reaching reward
-                tcp_to_obj_dist = torch.norm(
-                    obj_pos[not_grasped_not_rest] - tcp_pos[not_grasped_not_rest], dim=1
-                )
-                reaching_rew = 1 - torch.tanh(5 * tcp_to_obj_dist)
-                not_grasped_not_rest_reward += reaching_rew
-
-                x = torch.zeros_like(reward)
-                x[not_grasped_not_rest] = reaching_rew
-                new_info["ngnr_reaching_rew"] = x
-
-            if torch.any(grasped_not_rest):
-                # add prev step max reward
-                grasped_not_rest_reward += 2
-
-                # add reward for grasping obj
-                grasped_not_rest_reward += 2
-
-                # place reward
-                place_rew = 5 * (1 - torch.tanh(obj_to_goal_dist[grasped_not_rest]))
-                grasped_not_rest_reward += place_rew
-
-                x = torch.zeros_like(reward)
-                x[grasped_not_rest] = place_rew
-                new_info["place_rew"] = x
-
+            if torch.any(obj_not_at_goal):
                 # rew for obj over goal
-                obj_over_goal_rew = 1 - torch.tanh(
+                ee_over_goal_rew = 1 - torch.tanh(
                     5
                     * torch.norm(
-                        obj_pos[..., :2][grasped_not_rest]
-                        - goal_pos[..., :2][grasped_not_rest],
+                        tcp_pos[..., :2][obj_not_at_goal]
+                        - goal_pos[..., :2][obj_not_at_goal],
                         dim=1,
                     )
                 )
-                grasped_not_rest_reward += obj_over_goal_rew
+                obj_not_at_goal_reward += ee_over_goal_rew
 
                 x = torch.zeros_like(reward)
-                x[grasped_not_rest] = obj_over_goal_rew
-                new_info["obj_over_goal_rew"] = x
+                x[obj_not_at_goal] = ee_over_goal_rew
+                new_info["ee_over_goal_rew"] = x
 
                 # penalty for torso moving up and down too much
-                tqvel_z = self.agent.robot.qvel[..., 3][grasped_not_rest]
+                tqvel_z = self.agent.robot.qvel[..., 3][obj_not_at_goal]
                 torso_not_moving_rew = 1 - torch.tanh(5 * torch.abs(tqvel_z))
-                grasped_not_rest_reward += torso_not_moving_rew
+                obj_not_at_goal_reward += torso_not_moving_rew
 
                 x = torch.zeros_like(reward)
-                x[grasped_not_rest] = torso_not_moving_rew
+                x[obj_not_at_goal] = torso_not_moving_rew
                 new_info["torso_not_moving_rew"] = x
 
-                # reaching reward
-                tcp_to_obj_dist = torch.norm(
-                    obj_pos[grasped_not_rest] - tcp_pos[grasped_not_rest], dim=1
-                )
-                reaching_rew = 1 - torch.tanh(5 * tcp_to_obj_dist)
-                grasped_not_rest_reward += reaching_rew
-
-                x = torch.zeros_like(reward)
-                x[grasped_not_rest] = reaching_rew
-                new_info["gnr_reaching_rew"] = x
-
-            if torch.any(obj_rest_grasped):
-                # add prev step max reward
-                obj_rest_grasped_reward += 12
-
-                # add reward for object at goal
-                obj_rest_grasped_reward += 2
-
-            if torch.any(obj_rest_not_grasped):
-                # add prev step max reward
-                obj_rest_not_grasped_reward += 14
-
-                # add reward for object at goal and not grasped
-                obj_rest_not_grasped_reward += 2
+            if torch.any(obj_at_goal):
+                # add prev step max rew
+                obj_at_goal_reward += 2
 
                 # rest reward
-                rest_rew = 5 * (
-                    1 - torch.tanh(3 * ee_to_rest_dist[obj_rest_not_grasped])
-                )
-                obj_rest_not_grasped_reward += rest_rew
+                rest_rew = 5 * (1 - torch.tanh(3 * ee_to_rest_dist[obj_at_goal]))
+                obj_at_goal_reward += rest_rew
 
                 x = torch.zeros_like(reward)
-                x[obj_rest_not_grasped] = rest_rew
+                x[obj_at_goal] = rest_rew
                 new_info["rest_rew"] = x
 
                 # penalty for base moving or rotating too much
-                bqvel = self.agent.robot.qvel[..., :3][obj_rest_not_grasped]
+                bqvel = self.agent.robot.qvel[..., :3][obj_at_goal]
                 base_still_rew = 1 - torch.tanh(torch.norm(bqvel, dim=1))
-                obj_rest_not_grasped_reward += base_still_rew
+                obj_at_goal_reward += base_still_rew
 
                 x = torch.zeros_like(reward)
-                x[obj_rest_not_grasped] = base_still_rew
+                x[obj_at_goal] = base_still_rew
                 new_info["base_still_rew"] = x
 
             if torch.any(ee_rest):
@@ -623,10 +546,8 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 new_info["static_rew"] = x
 
             # add rewards to specific envs
-            reward[not_grasped_not_rest] += not_grasped_not_rest_reward
-            reward[grasped_not_rest] += grasped_not_rest_reward
-            reward[obj_rest_grasped] += obj_rest_grasped_reward
-            reward[obj_rest_not_grasped] += obj_rest_not_grasped_reward
+            reward[obj_not_at_goal] += obj_not_at_goal_reward
+            reward[obj_at_goal] += obj_at_goal_reward
             reward[ee_rest] += ee_rest_reward
 
             new_info["reward_unscaled"] = reward
@@ -642,7 +563,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
     def compute_normalized_dense_reward(
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
-        max_reward = 30.0
+        max_reward = 22.0
         return self.compute_dense_reward(obs=obs, action=action, info=info) / max_reward
 
     # -------------------------------------------------------------------------------------------------
