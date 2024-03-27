@@ -457,6 +457,13 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
             new_info["arm_resting_orientation_rew"] = arm_resting_orientation_rew
 
+            # penalty for torso moving up and down too much
+            tqvel_z = self.agent.robot.qvel[..., 3]
+            torso_not_moving_rew = 1 - torch.tanh(5 * torch.abs(tqvel_z))
+            reward += torso_not_moving_rew
+
+            new_info["torso_not_moving_rew"] = torso_not_moving_rew
+
             # ---------------------------------------------------------------
             # colliisions
             step_no_col_rew = 1 - torch.tanh(
@@ -506,18 +513,9 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 x[obj_not_at_goal] = ee_over_goal_rew
                 new_info["ee_over_goal_rew"] = x
 
-                # penalty for torso moving up and down too much
-                tqvel_z = self.agent.robot.qvel[..., 3][obj_not_at_goal]
-                torso_not_moving_rew = 1 - torch.tanh(5 * torch.abs(tqvel_z))
-                obj_not_at_goal_reward += torso_not_moving_rew
-
-                x = torch.zeros_like(reward)
-                x[obj_not_at_goal] = torso_not_moving_rew
-                new_info["torso_not_moving_rew"] = x
-
             if torch.any(obj_at_goal):
                 # add prev step max rew
-                obj_at_goal_reward += 7
+                obj_at_goal_reward += 6
 
                 # obj_left_at_goal
                 obj_at_goal_reward += 2 * ~info["is_grasped"][obj_at_goal]
@@ -540,6 +538,8 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 new_info["base_still_rew"] = x
 
             if torch.any(ee_rest):
+                ee_rest_reward += 2
+
                 qvel = self.agent.robot.qvel[..., :-2][ee_rest]
                 static_rew = 1 - torch.tanh(torch.norm(qvel, dim=1))
                 ee_rest_reward += static_rew
@@ -566,7 +566,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
     def compute_normalized_dense_reward(
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
-        max_reward = 24.0
+        max_reward = 26.0
         return self.compute_dense_reward(obs=obs, action=action, info=info) / max_reward
 
     # -------------------------------------------------------------------------------------------------
