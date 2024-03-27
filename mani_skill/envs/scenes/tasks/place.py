@@ -485,7 +485,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             if torch.any(obj_not_at_goal):
                 # obj place reward
                 place_rew = 5 * (1 - torch.tanh(obj_to_goal_dist[obj_not_at_goal]))
-                reward += place_rew
+                obj_not_at_goal_reward += place_rew
 
                 x = torch.zeros_like(reward)
                 x[obj_not_at_goal] = place_rew
