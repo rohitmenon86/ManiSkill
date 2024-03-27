@@ -498,6 +498,21 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 x[obj_not_at_goal] = place_rew
                 new_info["place_rew"] = x
 
+                # obj place reward
+                ee_place_rew = 5 * (
+                    1
+                    - torch.tanh(
+                        torch.norm(
+                            tcp_pos[obj_not_at_goal] - goal_pos[obj_not_at_goal], dim=1
+                        )
+                    )
+                )
+                obj_not_at_goal_reward += ee_place_rew
+
+                x = torch.zeros_like(reward)
+                x[obj_not_at_goal] = ee_place_rew
+                new_info["ee_place_rew"] = x
+
                 # rew for ee over goal
                 ee_over_goal_rew = 1 - torch.tanh(
                     5
@@ -515,7 +530,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
             if torch.any(obj_at_goal):
                 # add prev step max rew
-                obj_at_goal_reward += 6
+                obj_at_goal_reward += 11
 
                 # obj_left_at_goal
                 obj_at_goal_reward += 2 * ~info["is_grasped"][obj_at_goal]
@@ -566,7 +581,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
     def compute_normalized_dense_reward(
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
-        max_reward = 26.0
+        max_reward = 31.0
         return self.compute_dense_reward(obs=obs, action=action, info=info) / max_reward
 
     # -------------------------------------------------------------------------------------------------
