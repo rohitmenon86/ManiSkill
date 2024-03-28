@@ -531,6 +531,16 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 x[obj_at_goal] = rest_rew
                 new_info["rest_rew"] = x
 
+                # additional encourage arm and torso in "resting" orientation
+                more_arm_resting_orientation_rew = 2 * (
+                    1 - torch.tanh(arm_to_resting_diff[obj_at_goal])
+                )
+                obj_at_goal_reward += more_arm_resting_orientation_rew
+
+                x = torch.zeros_like(reward).float()
+                x[obj_at_goal] = more_arm_resting_orientation_rew.float()
+                new_info["more_arm_resting_orientation_rew"] = x
+
                 # penalty for base moving or rotating too much
                 bqvel = self.agent.robot.qvel[..., :3][obj_at_goal]
                 base_still_rew = 1 - torch.tanh(torch.norm(bqvel, dim=1))
@@ -569,7 +579,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
     def compute_normalized_dense_reward(
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
-        max_reward = 29.0
+        max_reward = 31.0
         return self.compute_dense_reward(obs=obs, action=action, info=info) / max_reward
 
     # -------------------------------------------------------------------------------------------------
