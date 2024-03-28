@@ -452,7 +452,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 self.agent.robot.qpos[..., 3:-2] - self.resting_qpos,
                 dim=1,
             )
-            arm_resting_orientation_rew = 2 * (1 - torch.tanh(arm_to_resting_diff))
+            arm_resting_orientation_rew = 4 * (1 - torch.tanh(arm_to_resting_diff))
             reward += arm_resting_orientation_rew
 
             new_info["arm_resting_orientation_rew"] = arm_resting_orientation_rew
@@ -581,7 +581,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
     def compute_normalized_dense_reward(
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
-        max_reward = 31.0
+        max_reward = 33.0
         return self.compute_dense_reward(obs=obs, action=action, info=info) / max_reward
 
     # -------------------------------------------------------------------------------------------------
