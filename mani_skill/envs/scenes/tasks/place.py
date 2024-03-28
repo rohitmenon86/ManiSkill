@@ -581,7 +581,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
     def compute_normalized_dense_reward(
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
-        max_reward = 29.0
+        max_reward = 31.0
         return self.compute_dense_reward(obs=obs, action=action, info=info) / max_reward
 
     # -------------------------------------------------------------------------------------------------
