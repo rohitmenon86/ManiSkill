@@ -400,7 +400,7 @@ class SequentialTaskEnv(SceneManipulationEnv):
             <= ee_rest_thresh
         )
         is_static = self.agent.is_static(threshold=0.2)[env_idx]
-        return is_grasped & obj_at_goal & ee_rest & is_static, is_grasped
+        return ~is_grasped & obj_at_goal & ee_rest & is_static, is_grasped
 
     # -------------------------------------------------------------------------------------------------
 
