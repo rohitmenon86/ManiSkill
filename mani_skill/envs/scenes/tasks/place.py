@@ -532,16 +532,14 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 new_info["rest_rew"] = x
 
                 # additional encourage arm and torso in "resting" orientation
-                arm_to_resting_diff = torch.norm(
-                    self.agent.robot.qpos[..., 3:-2][obj_at_goal] - self.resting_qpos,
-                    dim=1,
+                more_arm_resting_orientation_rew = 2 * (
+                    1 - torch.tanh(arm_to_resting_diff[obj_at_goal])
                 )
-                arm_resting_orientation_rew = 2 * (1 - torch.tanh(arm_to_resting_diff))
-                obj_at_goal_reward += arm_resting_orientation_rew
+                obj_at_goal_reward += more_arm_resting_orientation_rew
 
                 x = torch.zeros_like(reward)
-                x[obj_at_goal] = arm_resting_orientation_rew
-                new_info["at_goal_arm_resting_orientation_rew"] = x
+                x[obj_at_goal] = more_arm_resting_orientation_rew
+                new_info["more_arm_resting_orientation_rew"] = x
 
                 # penalty for base moving or rotating too much
                 bqvel = self.agent.robot.qvel[..., :3][obj_at_goal]
