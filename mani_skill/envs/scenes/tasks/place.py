@@ -452,7 +452,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 self.agent.robot.qpos[..., 3:-2] - self.resting_qpos,
                 dim=1,
             )
-            arm_resting_orientation_rew = 2 * (1 - torch.tanh(arm_to_resting_diff))
+            arm_resting_orientation_rew = 1 - torch.tanh(arm_to_resting_diff)
             reward += arm_resting_orientation_rew
 
             new_info["arm_resting_orientation_rew"] = arm_resting_orientation_rew
@@ -491,7 +491,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
             if torch.any(obj_not_at_goal):
                 # ee places obj at goal (instead of throwing)
-                obj_not_at_goal_reward += 2 * info["is_grasped"][obj_not_at_goal]
+                obj_not_at_goal_reward += 5 * info["is_grasped"][obj_not_at_goal]
 
                 # obj place reward
                 place_rew = 5 * (1 - torch.tanh(obj_to_goal_dist[obj_not_at_goal]))
@@ -518,7 +518,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
             if torch.any(obj_at_goal):
                 # add prev step max rew
-                obj_at_goal_reward += 8
+                obj_at_goal_reward += 11
 
                 # obj_left_at_goal
                 obj_at_goal_reward += 2 * ~info["is_grasped"][obj_at_goal]
@@ -532,7 +532,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 new_info["rest_rew"] = x
 
                 # additional encourage arm and torso in "resting" orientation
-                more_arm_resting_orientation_rew = 2 * (
+                more_arm_resting_orientation_rew = 3 * (
                     1 - torch.tanh(arm_to_resting_diff[obj_at_goal])
                 )
                 obj_at_goal_reward += more_arm_resting_orientation_rew
@@ -579,7 +579,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
     def compute_normalized_dense_reward(
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
-        max_reward = 31.0
+        max_reward = 35.0
         return self.compute_dense_reward(obs=obs, action=action, info=info) / max_reward
 
     # -------------------------------------------------------------------------------------------------
