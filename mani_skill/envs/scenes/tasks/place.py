@@ -537,8 +537,8 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 )
                 obj_at_goal_reward += more_arm_resting_orientation_rew
 
-                x = torch.zeros_like(reward)
-                x[obj_at_goal] = more_arm_resting_orientation_rew
+                x = torch.zeros_like(reward).float()
+                x[obj_at_goal] = more_arm_resting_orientation_rew.float()
                 new_info["more_arm_resting_orientation_rew"] = x
 
                 # penalty for base moving or rotating too much
