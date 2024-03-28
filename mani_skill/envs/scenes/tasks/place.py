@@ -491,7 +491,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
             if torch.any(obj_not_at_goal):
                 # ee places obj at goal (instead of throwing)
-                obj_not_at_goal += 2 * info["is_grasped"][obj_not_at_goal]
+                obj_not_at_goal_reward += 2 * info["is_grasped"][obj_not_at_goal]
 
                 # obj place reward
                 place_rew = 5 * (1 - torch.tanh(obj_to_goal_dist[obj_not_at_goal]))
