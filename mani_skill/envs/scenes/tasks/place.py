@@ -561,6 +561,15 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 x[ee_rest] = static_rew
                 new_info["static_rew"] = x
 
+                # penalty for base moving or rotating too much
+                bqvel = self.agent.robot.qvel[..., :3][obj_at_goal]
+                base_still_rew = 1 - torch.tanh(torch.norm(bqvel, dim=1))
+                obj_at_goal_reward += base_still_rew
+
+                x = torch.zeros_like(reward)
+                x[obj_at_goal] = base_still_rew
+                new_info["base_still_rew2"] = x
+
             # add rewards to specific envs
             reward[obj_not_at_goal] += obj_not_at_goal_reward
             reward[obj_at_goal] += obj_at_goal_reward
