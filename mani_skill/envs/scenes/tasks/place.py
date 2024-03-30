@@ -424,6 +424,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             # ---------------------------------------------------
 
             new_info = copy.deepcopy(info)
+            new_info["obj_at_goal"] = obj_at_goal
 
             # penalty for ee jittering too much
             ee_vel = self.agent.tcp.linear_velocity
