@@ -412,6 +412,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
             obj_to_goal_dist = torch.norm(obj_pos - goal_pos, dim=1)
             obj_at_goal = obj_to_goal_dist <= self.place_cfg.obj_goal_thresh
+            info["obj_at_goal"] = obj_at_goal
 
             ee_to_rest_dist = torch.norm(tcp_pos - rest_pos, dim=1)
             ee_rest = obj_at_goal & (ee_to_rest_dist <= self.place_cfg.ee_rest_thresh)
