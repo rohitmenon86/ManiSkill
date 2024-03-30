@@ -437,10 +437,10 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             obj_vel = torch.norm(
                 self.subtask_objs[0].linear_velocity, dim=1
             ) + torch.norm(self.subtask_objs[0].angular_velocity, dim=1)
-            obj_still_rew = 1 - torch.tanh(obj_vel / 5)
+            obj_still_rew = 2.5 * (1 - torch.tanh(obj_vel / 5))
             reward += obj_still_rew
 
-            new_info["ee_still_rew"] = ee_still_rew
+            new_info["obj_still_rew"] = obj_still_rew
 
             # success reward
             success_rew = 3 * info["success"]
@@ -589,7 +589,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
     def compute_normalized_dense_reward(
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
-        max_reward = 35.0
+        max_reward = 37.5
         return self.compute_dense_reward(obs=obs, action=action, info=info) / max_reward
 
     # -------------------------------------------------------------------------------------------------
