@@ -436,6 +436,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             info.pop("subtasks_steps_left", False)
             info.pop("fail", False)
             new_info = copy.deepcopy(info)
+            new_info["obj_at_goal"] = obj_at_goal
 
             # ---------------------------------------------------
 
