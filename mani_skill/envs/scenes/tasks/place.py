@@ -412,7 +412,6 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
             obj_to_goal_dist = torch.norm(obj_pos - goal_pos, dim=1)
             obj_at_goal = obj_to_goal_dist <= self.place_cfg.obj_goal_thresh
-            info["obj_at_goal"] = obj_at_goal
 
             ee_to_rest_dist = torch.norm(tcp_pos - rest_pos, dim=1)
             ee_rest = obj_at_goal & (ee_to_rest_dist <= self.place_cfg.ee_rest_thresh)
@@ -434,10 +433,15 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
             # ---------------------------------------------------
 
+            new_info = copy.deepcopy(info)
+            new_info["obj_at_goal"] = obj_at_goal
+
             # penalty for ee jittering too much
             ee_vel = self.agent.tcp.linear_velocity
             ee_still_rew = 1 - torch.tanh(torch.norm(ee_vel, dim=1) / 5)
             reward += ee_still_rew
+
+            new_info["ee_still_rew"] = ee_still_rew
 
             # penalty for object moving too much
             obj_vel = torch.norm(
@@ -446,9 +450,13 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             obj_still_rew = 3 * (1 - torch.tanh(obj_vel / 5))
             reward += obj_still_rew
 
+            new_info["obj_still_rew"] = obj_still_rew
+
             # success reward
             success_rew = 4 * info["success"]
             reward += success_rew
+
+            new_info["success_rew"] = success_rew
 
             # encourage arm and torso in "resting" orientation
             arm_to_resting_diff = torch.norm(
@@ -458,10 +466,14 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             arm_resting_orientation_rew = 1 - torch.tanh(arm_to_resting_diff)
             reward += arm_resting_orientation_rew
 
+            new_info["arm_resting_orientation_rew"] = arm_resting_orientation_rew
+
             # penalty for torso moving up and down too much
             tqvel_z = self.agent.robot.qvel[..., 3]
             torso_not_moving_rew = 1 - torch.tanh(5 * torch.abs(tqvel_z))
             reward += torso_not_moving_rew
+
+            new_info["torso_not_moving_rew"] = torso_not_moving_rew
 
             # ---------------------------------------------------------------
             # colliisions
@@ -477,11 +489,15 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             )
             reward += step_no_col_rew
 
+            new_info["step_no_col_rew"] = step_no_col_rew
+
             # cumulative collision penalty
             cum_col_under_thresh_rew = (
                 info["robot_cumulative_force"] < self.robot_cumulative_force_limit
             ).float()
             reward += cum_col_under_thresh_rew
+
+            new_info["cum_col_under_thresh_rew"] = cum_col_under_thresh_rew
             # ---------------------------------------------------------------
 
             # total: 5
@@ -491,10 +507,18 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 reaching_rew = 3 * (1 - torch.tanh(5 * tcp_to_obj_dist))
                 dropped_reward += reaching_rew
 
+                x = torch.zeros_like(reward)
+                x[dropped] = reaching_rew
+                new_info["reaching_rew"] = x
+
                 # penalty for torso moving up and down too much
                 tqvel_z = self.agent.robot.qvel[..., 3][dropped]
                 torso_not_moving_rew = 1 - torch.tanh(5 * torch.abs(tqvel_z))
                 dropped_reward += torso_not_moving_rew
+
+                x = torch.zeros_like(reward)
+                x[dropped] = torso_not_moving_rew
+                new_info["torso_not_moving_rew"] = x
 
                 # penalty for ee not over obj
                 ee_over_obj_rew = 1 - torch.tanh(
@@ -505,6 +529,10 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                     )
                 )
                 dropped_reward += ee_over_obj_rew
+
+                x = torch.zeros_like(reward)
+                x[dropped] = torso_not_moving_rew
+                new_info["torso_not_moving_rew"] = x
 
             # total: 13
             if torch.any(placing):
@@ -518,6 +546,10 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 place_rew = 5 * (1 - torch.tanh(obj_to_goal_dist[placing]))
                 placing_reward += place_rew
 
+                x = torch.zeros_like(reward)
+                x[placing] = place_rew
+                new_info["place_rew"] = x
+
                 # rew for ee over goal
                 ee_over_goal_rew = 1 - torch.tanh(
                     5
@@ -527,6 +559,10 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                     )
                 )
                 placing_reward += ee_over_goal_rew
+
+                x = torch.zeros_like(reward)
+                x[placing] = ee_over_goal_rew
+                new_info["ee_over_goal_rew"] = x
 
             # total: 18
             if torch.any(letting_go):
@@ -548,16 +584,28 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 rest_rew = 5 * (1 - torch.tanh(3 * ee_to_rest_dist[returning]))
                 returning_reward += rest_rew
 
+                x = torch.zeros_like(reward)
+                x[returning] = returning_reward
+                new_info["returning_reward"] = x
+
                 # additional encourage arm and torso in "resting" orientation
                 more_arm_resting_orientation_rew = 3 * (
                     1 - torch.tanh(arm_to_resting_diff[returning])
                 )
                 returning_reward += more_arm_resting_orientation_rew
 
+                x = torch.zeros_like(reward)
+                x[returning] = more_arm_resting_orientation_rew
+                new_info["more_arm_resting_orientation_rew"] = x
+
                 # penalty for base moving or rotating too much
                 bqvel = self.agent.robot.qvel[..., :3][returning]
                 base_still_rew = 1 - torch.tanh(torch.norm(bqvel, dim=1))
                 returning_reward += base_still_rew
+
+                x = torch.zeros_like(reward)
+                x[returning] = base_still_rew
+                new_info["base_still_rew"] = x
 
             # NOTE: any envs at this stage are also in "returning" stage, no need to increment from previous
             if torch.any(resting):
@@ -568,10 +616,18 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
                 static_rew = 1 - torch.tanh(torch.norm(qvel, dim=1))
                 resting_reward += static_rew
 
+                x = torch.zeros_like(reward)
+                x[returning] = base_still_rew
+                new_info["base_still_rew"] = x
+
                 # penalty for base moving or rotating too much
                 bqvel = self.agent.robot.qvel[..., :3][resting]
                 base_still_rew = 1 - torch.tanh(torch.norm(bqvel, dim=1))
                 resting_reward += base_still_rew
+
+                x = torch.zeros_like(reward)
+                x[returning] = base_still_rew
+                new_info["base_still_rew"] = x
 
             # add rewards to specific envs
             reward[dropped] += dropped_reward
@@ -579,6 +635,8 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             reward[letting_go] += letting_go_reward
             reward[returning] += returning_reward
             reward[resting] += resting_reward
+
+            new_info["reward_unscaled"] = reward
 
         return reward
 
