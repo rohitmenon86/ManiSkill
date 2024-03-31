@@ -424,6 +424,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             # ---------------------------------------------------
 
             new_info = copy.deepcopy(info)
+            new_info["obj_at_goal"] = obj_at_goal
 
             # penalty for ee jittering too much
             ee_vel = self.agent.tcp.linear_velocity
@@ -436,7 +437,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             obj_vel = torch.norm(
                 self.subtask_objs[0].linear_velocity, dim=1
             ) + torch.norm(self.subtask_objs[0].angular_velocity, dim=1)
-            obj_still_rew = 1 - torch.tanh(obj_vel / 5)
+            obj_still_rew = 3 * (1 - torch.tanh(obj_vel / 5))
             reward += obj_still_rew
 
             new_info["ee_still_rew"] = ee_still_rew
@@ -588,7 +589,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
     def compute_normalized_dense_reward(
         self, obs: Any, action: torch.Tensor, info: Dict
     ):
-        max_reward = 32.0
+        max_reward = 34.0
         return self.compute_dense_reward(obs=obs, action=action, info=info) / max_reward
 
     # -------------------------------------------------------------------------------------------------
