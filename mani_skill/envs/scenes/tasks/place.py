@@ -274,9 +274,9 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
             xyz = torch.zeros((b, 3))
             xyz[..., :2] = torch.rand((b, 2)) * 0.2
-            xyz += self.subtask_goals[0].pose.p
+            xyz += torch.tensor(self.task_plan[0].goal_pos)
             self.subtask_goals[0].set_pose(
-                Pose.create_from_pq(xyz, self.subtask_objs[0].pose.q)
+                Pose.create_from_pq(p=xyz)
             )
 
             self.resting_qpos = torch.tensor(self.agent.RESTING_QPOS[3:-2])
