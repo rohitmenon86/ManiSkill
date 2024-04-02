@@ -151,7 +151,7 @@ class RotateCubeEnv(BaseEnv):
 
         Possible levels are:
             - 0: Random goal position on the table, no orientation.
-            - 1:  Random goal position on the table, including yaw orientation.
+            - 1: Random goal position on the table, including yaw orientation.
             - 2: Fixed goal position in the air with x,y = 0.  No orientation.
             - 3: Random goal position in the air, no orientation.
             - 4: Random goal pose in the air, including orientation.
