@@ -271,6 +271,14 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             super()._initialize_episode(env_idx, options)
 
             b = len(env_idx)
+
+            xyz = torch.zeros((b, 3))
+            xyz[..., :2] = torch.rand((b, 2)) * 0.2
+            xyz += self.subtask_goals[0].pose.p
+            self.subtask_goals[0].set_pose(
+                Pose.create_from_pq(xyz, self.subtask_objs[0].pose.q)
+            )
+
             self.resting_qpos = torch.tensor(self.agent.RESTING_QPOS[3:-2])
 
             pick_init_idxs = torch.randint(len(self.init_robot_qpos), (b,))
