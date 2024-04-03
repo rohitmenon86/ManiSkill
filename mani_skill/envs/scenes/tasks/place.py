@@ -76,6 +76,8 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
         robot_force_mult=0,
         robot_force_penalty_min=0,
         robot_cumulative_force_limit=torch.inf,
+        # additional randomization
+        goal_randomization=False,
         **kwargs,
     ):
 
@@ -95,6 +97,9 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
         self.robot_force_mult = robot_force_mult
         self.robot_force_penalty_min = robot_force_penalty_min
         self.robot_cumulative_force_limit = robot_cumulative_force_limit
+
+        # additional randomization
+        self.goal_randomization = False
 
         super().__init__(*args, robot_uids=robot_uids, task_plans=task_plans, **kwargs)
 
@@ -272,12 +277,11 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
             b = len(env_idx)
 
-            xyz = torch.zeros((b, 3))
-            xyz[..., :2] = torch.rand((b, 2)) * 0.2
-            xyz += torch.tensor(self.task_plan[0].goal_pos)
-            self.subtask_goals[0].set_pose(
-                Pose.create_from_pq(p=xyz)
-            )
+            if self.goal_randomization:
+                xyz = torch.zeros((b, 3))
+                xyz[..., :2] = torch.rand((b, 2)) * 0.2
+                xyz += torch.tensor(self.task_plan[0].goal_pos)
+                self.subtask_goals[0].set_pose(Pose.create_from_pq(p=xyz))
 
             self.resting_qpos = torch.tensor(self.agent.RESTING_QPOS[3:-2])
 
@@ -349,7 +353,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
     # -------------------------------------------------------------------------------------------------
     # OBS AND INFO
     # -------------------------------------------------------------------------------------------------
-    # Remove irrelevant obs for palce task from state dict
+    # Remove irrelevant obs for place task from state dict
     # -------------------------------------------------------------------------------------------------
 
     def _get_obs_state_dict(self, info: Dict):
@@ -431,15 +435,10 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
             # ---------------------------------------------------
 
-            new_info = copy.deepcopy(info)
-            new_info["obj_at_goal"] = obj_at_goal
-
             # penalty for ee jittering too much
             ee_vel = self.agent.tcp.linear_velocity
             ee_still_rew = 1 - torch.tanh(torch.norm(ee_vel, dim=1) / 5)
             reward += ee_still_rew
-
-            new_info["ee_still_rew"] = ee_still_rew
 
             # penalty for object moving too much
             obj_vel = torch.norm(
@@ -448,13 +447,9 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             obj_still_rew = 3 * (1 - torch.tanh(obj_vel / 5))
             reward += obj_still_rew
 
-            new_info["ee_still_rew"] = ee_still_rew
-
             # success reward
             success_rew = 3 * info["success"]
             reward += success_rew
-
-            new_info["success_rew"] = success_rew
 
             # encourage arm and torso in "resting" orientation
             arm_to_resting_diff = torch.norm(
@@ -464,14 +459,10 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             arm_resting_orientation_rew = 2 * (1 - torch.tanh(arm_to_resting_diff))
             reward += arm_resting_orientation_rew
 
-            new_info["arm_resting_orientation_rew"] = arm_resting_orientation_rew
-
             # penalty for torso moving up and down too much
             tqvel_z = self.agent.robot.qvel[..., 3]
             torso_not_moving_rew = 1 - torch.tanh(5 * torch.abs(tqvel_z))
             reward += torso_not_moving_rew
-
-            new_info["torso_not_moving_rew"] = torso_not_moving_rew
 
             # ---------------------------------------------------------------
             # colliisions
@@ -487,15 +478,11 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             )
             reward += step_no_col_rew
 
-            new_info["step_no_col_rew"] = step_no_col_rew
-
             # cumulative collision penalty
             cum_col_under_thresh_rew = (
                 info["robot_cumulative_force"] < self.robot_cumulative_force_limit
             ).float()
             reward += cum_col_under_thresh_rew
-
-            new_info["cum_col_under_thresh_rew"] = cum_col_under_thresh_rew
             # ---------------------------------------------------------------
 
             if torch.any(obj_not_at_goal):
@@ -508,7 +495,6 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
                 x = torch.zeros_like(reward)
                 x[obj_not_at_goal] = place_rew
-                new_info["place_rew"] = x
 
                 # rew for ee over goal
                 ee_over_goal_rew = 1 - torch.tanh(
@@ -523,7 +509,6 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
                 x = torch.zeros_like(reward)
                 x[obj_not_at_goal] = ee_over_goal_rew
-                new_info["ee_over_goal_rew"] = x
 
             if torch.any(obj_at_goal):
                 # add prev step max rew
@@ -538,7 +523,6 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
                 x = torch.zeros_like(reward)
                 x[obj_at_goal] = rest_rew
-                new_info["rest_rew"] = x
 
                 # additional encourage arm and torso in "resting" orientation
                 more_arm_resting_orientation_rew = 2 * (
@@ -548,7 +532,6 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
                 x = torch.zeros_like(reward).float()
                 x[obj_at_goal] = more_arm_resting_orientation_rew.float()
-                new_info["more_arm_resting_orientation_rew"] = x
 
                 # penalty for base moving or rotating too much
                 bqvel = self.agent.robot.qvel[..., :3][obj_at_goal]
@@ -557,7 +540,6 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
                 x = torch.zeros_like(reward)
                 x[obj_at_goal] = base_still_rew
-                new_info["base_still_rew"] = x
 
             if torch.any(ee_rest):
                 ee_rest_reward += 2
@@ -568,7 +550,6 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
                 x = torch.zeros_like(reward)
                 x[ee_rest] = static_rew
-                new_info["static_rew"] = x
 
                 # penalty for base moving or rotating too much
                 bqvel = self.agent.robot.qvel[..., :3][ee_rest]
@@ -577,20 +558,11 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
                 x = torch.zeros_like(reward)
                 x[ee_rest] = base_still_rew
-                new_info["base_still_rew2"] = x
 
             # add rewards to specific envs
             reward[obj_not_at_goal] += obj_not_at_goal_reward
             reward[obj_at_goal] += obj_at_goal_reward
             reward[ee_rest] += ee_rest_reward
-
-            new_info["reward_unscaled"] = reward
-
-            keys = list(info.keys())
-            for k in keys:
-                info.pop(k, False)
-            for k, v in new_info.items():
-                info[k] = v
 
         return reward
 
