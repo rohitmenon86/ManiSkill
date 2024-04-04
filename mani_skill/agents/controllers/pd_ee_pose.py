@@ -107,6 +107,9 @@ class PDEEPosController(PDJointPosController):
     ):
         # Assume the target pose is defined in the base frame
         if physx.is_gpu_enabled():
+            assert (
+                self.config.use_delta == True
+            ), "GPU ee control only supports delta actions at the moment"
             jacobian = (
                 self.fast_kinematics_model.jacobian_mixed_frame_pytorch(
                     self.articulation.get_qpos()[:, self.active_ancestor_joint_idxs]
@@ -149,7 +152,7 @@ class PDEEPosController(PDJointPosController):
                 raise NotImplementedError(self.config.frame)
         else:
             assert self.config.frame == "base", self.config.frame
-            target_pose = Pose.create(action)
+            target_pose = self.articulation.pose.inv() * Pose.create_from_pq(action)
 
         return target_pose
 
