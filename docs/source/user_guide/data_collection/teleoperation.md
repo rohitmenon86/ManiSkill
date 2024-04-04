@@ -33,7 +33,15 @@ You can always press "h" to bring up a help menu describing the keyboard command
 
 
 <!-- ## Space Mouse -->
-<!-- 
+
 ## Meta Quest 3
 
-Requirements: Meta Quest 3 -->
+Requirements: Meta Quest 3
+
+
+
+Notes: 
+
+- Set `VK_ICD_FILENAMES="/usr/share/vulkan/icd.d/nvidia_icd.json" %command%` in steam game launch properties
+- You must have a developer account. And to avoid potential bugs you should be the admin account of the meta quest 3
+- On mobile app (cant do online) enable device developer mode
