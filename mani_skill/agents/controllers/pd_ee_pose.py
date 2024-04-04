@@ -267,7 +267,9 @@ class PDEEPoseController(PDEEPosController):
                 euler_angles_to_matrix(target_rot, "XYZ")
             )
             # target_quat = Rotation.from_rotvec(target_rot).as_quat()[[3, 0, 1, 2]]
-            target_pose = Pose.create_from_pq(target_pos, target_quat)
+            target_pose = self.articulation.pose.inv() * Pose.create_from_pq(
+                target_pos, target_quat
+            )
 
         return target_pose
 
