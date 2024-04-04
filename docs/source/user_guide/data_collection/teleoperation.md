@@ -38,10 +38,10 @@ You can always press "h" to bring up a help menu describing the keyboard command
 
 Requirements: Meta Quest 3
 
-
-
 Notes: 
 
 - Set `VK_ICD_FILENAMES="/usr/share/vulkan/icd.d/nvidia_icd.json" %command%` in steam game launch properties
 - You must have a developer account. And to avoid potential bugs you should be the admin account of the meta quest 3
 - On mobile app (cant do online) enable device developer mode
+
+See the main page on using Meta Quest 3: [here](./teleoperation/meta_quest_3.md)

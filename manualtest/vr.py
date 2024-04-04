@@ -358,7 +358,10 @@ if __name__ == "__main__":
     env = gym.make("PickCube-v1")
     env.reset(seed=0)
     vr = VRViewer()
+    vr.root_pose = sapien.Pose([-0.615, 0, 0])
+    print(vr.root_pose)
     vr.set_scene(env.unwrapped._scene.sub_scenes[0])
+
     while True:
         env.render_human()
         vr.render()
