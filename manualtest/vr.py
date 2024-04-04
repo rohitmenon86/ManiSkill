@@ -356,67 +356,66 @@ class VRViewer:
 
 if __name__ == "__main__":
 
-    # env = gym.make("PickCube-v1", control_mode="pd_ee_pos")
-    # env.reset(seed=0)
-    # vr = VRViewer()
-    # vr.root_pose = sapien.Pose([-0.615, 0, 0])
-    # print(vr.root_pose)
-    # vr.set_scene(env.unwrapped._scene.sub_scenes[0])
-
-    # # Calibration step for EE control
-    # # teleop_sys.calibrate()
-
-    # while True:
-    #     # env.render_human()
-    #     vr.render()
-    #     rp = vr.controller_right_poses
-    #     if vr.pressed_button(2) == "up":
-    #         offset_pose = rp
-    #         break
-
-    # vr.root_pose = sapien.Pose(-offset_pose.p + env.unwrapped.agent.tcp.pose.sp.p)
-    # gripper_action = -1
-    # while True:
-    #     # env.render_human()
-    #     vr.render()
-    #     rp = vr.controller_right_poses
-    #     transformed_rp = rp * offset_pose.inv()
-    #     print(rp.p, transformed_rp.p)
-
-    #     action = env.action_space.sample() * 0
-    #     action[:3] = env.unwrapped.agent.tcp.pose.sp.p#transformed_rp.p
-    #     if vr.pressed_button(2) == "up":
-    #         gripper_action = -1
-    #     else:
-    #         gripper_action = 1
-    #     action[3] = gripper_action
-    #     env.step(action)
-
     env = gym.make("PickCube-v1", control_mode="pd_ee_pose")
     env.reset(seed=0)
-    # vr = VRViewer()
-    # vr.root_pose = sapien.Pose([-0.615, 0, 0])
-    # print(vr.root_pose)
-    # vr.set_scene(env.unwrapped._scene.sub_scenes[0])
+    vr = VRViewer()
+    vr.root_pose = sapien.Pose([-0.615, 0, 0])
+    print(vr.root_pose)
+    vr.set_scene(env.unwrapped._scene.sub_scenes[0])
 
-    target_tcp_pose = env.unwrapped.agent.tcp.pose.sp
+    # Calibration step for EE control
+    # teleop_sys.calibrate()
+    offset_pose = None
 
-    # vr.root_pose = sapien.Pose(-offset_pose.p + env.unwrapped.agent.tcp.pose.sp.p)
+    def calibrate():
+        global offset_pose
+        vr.root_pose = sapien.Pose()
+        while True:
+            # env.render_human()
+            vr.render()
+            rp = vr.controller_right_poses
+            if vr.pressed_button(2) == "up":
+                offset_pose = rp
+                break
+
+    calibrate()
+    vr.root_pose = sapien.Pose(-offset_pose.p + env.unwrapped.agent.tcp.pose.sp.p)
+    # this ensures that the scene is reset so that the hand in VR is at the same position as the chosen end-effector
     gripper_action = -1
     while True:
         env.render_human()
+        for obj in env.unwrapped._hidden_objects:
+            obj.show_visual()
+        vr.render()
+        rp = vr.root_pose * vr.controller_right_poses
+        #  c2w = self.vr.root_pose * pose
+        # transformed_rp = offset_pose
         # print(rp.p, transformed_rp.p)
+
+        action = env.action_space.sample() * 0
         target_tcp_pose = env.unwrapped.agent.tcp.pose.sp
 
         action = env.action_space.sample() * 0
         action[:3] = target_tcp_pose.p
-
+        action[:3] = rp.p
         if env.control_mode == "pd_ee_pose":
             action[3:6] = np.array(euler.quat2euler(target_tcp_pose.q))
 
-        # if vr.pressed_button(2) == "up":
-        #     gripper_action = -1
-        # else:
-        #     gripper_action = 1
+        if vr.pressed_button(2) == "up":
+            gripper_action = -1
+        else:
+            gripper_action = 1
         action[-1] = gripper_action
         env.step(action)
+
+        if vr.pressed_button(2) == "B":
+            break
+        if vr.pressed_button(2) == "A":
+            env.reset()
+            calibrate()
+            vr.root_pose = sapien.Pose(
+                -offset_pose.p + env.unwrapped.agent.tcp.pose.sp.p
+            )
+    env.close()
+    del env
+    del vr
