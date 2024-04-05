@@ -54,7 +54,6 @@ class PlaceSubtask(Subtask):
     type: str = "place"
 
     def __post_init__(self):
-        super().__post_init__()
         if isinstance(self.goal_pos, str):
             self.goal_pos = [float(coord) for coord in self.goal_pos.split(",")]
 
@@ -68,6 +67,30 @@ class PlaceSubtaskConfig(SubtaskConfig):
 
     def __post_init__(self):
         assert self.obj_goal_thresh >= 0
+        assert self.ee_rest_thresh >= 0
+
+
+@dataclass
+class NavigateSubtask(Subtask):
+    obj_id: Union[str, None] = None
+    goal_pos: Union[
+        str, Tuple[float, float, float], List[Tuple[float, float, float]], None
+    ] = None
+    type: str = "navigate"
+
+    def __post_init__(self):
+        if isinstance(self.goal_pos, str):
+            self.goal_pos = [float(coord) for coord in self.goal_pos.split(",")]
+
+
+@dataclass
+class NavigateSubtaskConfig(SubtaskConfig):
+    task_id: int = 2
+    horizon: int = 200
+    ee_rest_thresh: float = 0.05
+    navigated_sucessfully_dist: float = 2
+
+    def __post_init__(self):
         assert self.ee_rest_thresh >= 0
 
 
@@ -101,6 +124,8 @@ def plan_data_from_file(cfg_path: str = None) -> Tuple[TaskPlan, PlanMetadata]:
             cls = PickSubtask
         elif subtask.type == "place":
             cls = PlaceSubtask
+        elif subtask.type == "navigate":
+            cls = NavigateSubtask
         else:
             raise NotImplementedError(f"Subtask {subtask.type} not implemented yet")
         plan.append(from_dict(data_class=cls, data=subtask))

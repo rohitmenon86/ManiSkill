@@ -23,6 +23,8 @@ from .planner import (
     PickSubtaskConfig,
     PlaceSubtask,
     PlaceSubtaskConfig,
+    NavigateSubtask,
+    NavigateSubtaskConfig,
     Subtask,
     SubtaskConfig,
     TaskPlan,
@@ -68,9 +70,15 @@ class SequentialTaskEnv(SceneManipulationEnv):
         obj_goal_thresh=0.15,
         ee_rest_thresh=0.05,
     )
+    navigate_cfg = NavigateSubtaskConfig(
+        horizon=200,
+        ee_rest_thresh=0.05,
+        navigated_sucessfully_dist=2,
+    )
     task_cfgs: Dict[str, SubtaskConfig] = dict(
         pick=pick_cfg,
         place=place_cfg,
+        navigate=navigate_cfg,
     )
 
     @property
@@ -131,6 +139,7 @@ class SequentialTaskEnv(SceneManipulationEnv):
 
         # build new merged task_plan and merge actors of parallel task plants
         self.task_plan = []
+        last_subtask0 = None
         for subtask_num, parallel_subtasks in enumerate(zip(*self.base_task_plans)):
             subtask0 = parallel_subtasks[0]
 
@@ -173,10 +182,23 @@ class SequentialTaskEnv(SceneManipulationEnv):
                     )
                 )
 
+            elif isinstance(subtask0, NavigateSubtask):
+                if isinstance(last_subtask0, PickSubtask):
+                    last_subtask_obj = self.subtask_objs[-1]
+                    self.subtask_objs.append(last_subtask_obj)
+                    self.subtask_goals.append(None)
+                    self.task_plan.append(NavigateSubtask(obj_id=last_subtask_obj.name))
+                else:
+                    self.subtask_objs.append(None)
+                    self.subtask_goals.append(None)
+                    self.task_plan.append(NavigateSubtask())
+
             else:
                 raise AttributeError(
                     f"{subtask0.type} {type(subtask0)} not yet supported"
                 )
+
+            last_subtask0 = subtask0
 
         self.task_horizons = torch.tensor(
             [self.task_cfgs[subtask.type].horizon for subtask in self.task_plan],
@@ -265,10 +287,18 @@ class SequentialTaskEnv(SceneManipulationEnv):
 
     def _after_reconfigure(self, options):
         with torch.device(self.device):
-            for subtask_goal, subtask in zip(self.subtask_goals, self.task_plan):
-                if subtask_goal is not None:
-                    subtask: PlaceSubtask
+            last_subtask = None
+            for i, (subtask_obj, subtask_goal, subtask) in enumerate(
+                zip(self.subtask_objs, self.subtask_goals, self.task_plan)
+            ):
+                if isinstance(subtask, PlaceSubtask):
                     subtask_goal.set_pose(Pose.create_from_pq(p=subtask.goal_pos))
+                if isinstance(last_subtask, NavigateSubtask):
+                    if isinstance(subtask, PickSubtask):
+                        self.subtask_goals[i - 1] = subtask_obj
+                    elif isinstance(subtask, PlaceSubtask):
+                        self.subtask_goals[i - 1] = subtask_goal
+                last_subtask = subtask
 
     def _initialize_episode(self, env_idx: torch.Tensor, options):
         super()._initialize_episode(env_idx, options)
@@ -357,6 +387,16 @@ class SequentialTaskEnv(SceneManipulationEnv):
                     obj_goal_thresh=self.place_cfg.obj_goal_thresh,
                     ee_rest_thresh=self.place_cfg.ee_rest_thresh,
                 )
+            elif isinstance(subtask, NavigateSubtask):
+                (
+                    subtask_success[env_idx],
+                    is_grasped[env_idx],
+                ) = self._navigate_check_success(
+                    self.subtask_objs[subtask_num],
+                    self.subtask_goals[subtask_num],
+                    env_idx,
+                    ee_rest_thresh=self.place_cfg.ee_rest_thresh,
+                )
             else:
                 raise AttributeError(f"{subtask.type} {type(subtask)} not supported")
 
@@ -401,6 +441,46 @@ class SequentialTaskEnv(SceneManipulationEnv):
         )
         is_static = self.agent.is_static(threshold=0.2)[env_idx]
         return ~is_grasped & obj_at_goal & ee_rest & is_static, is_grasped
+
+    def _navigate_check_success(
+        self,
+        obj: Union[None, Actor],
+        goal: Actor,
+        env_idx: torch.Tensor,
+        ee_rest_thresh: float = 0.05,
+    ):
+        if obj is not None:
+            is_grasped = self.agent.is_grasping(obj, max_angle=30)[env_idx]
+        else:
+            is_grasped = torch.zeros_like(env_idx, dtype=torch.bool)
+
+        goal_pose_wrt_base = self.agent.base_link.pose.inv() * goal.pose
+        targ = goal_pose_wrt_base.p[..., :2][env_idx]
+        uc_targ = targ / torch.norm(targ, dim=1)
+        rots = torch.sign(uc_targ[..., 1]) * torch.arccos(uc_targ[..., 0])
+        oriented_correctly = torch.abs(rots) < 0.5
+
+        navigated_close = (
+            torch.norm(targ, dim=1) <= self.navigate_cfg.navigated_sucessfully_dist
+        )
+        ee_rest = (
+            torch.norm(
+                self.agent.tcp_pose.p[env_idx] - self.ee_rest_world_pose.p[env_idx],
+                dim=1,
+            )
+            <= ee_rest_thresh
+        )
+        is_static = self.agent.is_static(threshold=0.2)[env_idx]
+        if obj is not None:
+            return (
+                is_grasped & oriented_correctly & navigated_close & ee_rest & is_static,
+                is_grasped,
+            )
+        else:
+            return (
+                oriented_correctly & navigated_close & ee_rest & is_static,
+                is_grasped,
+            )
 
     # -------------------------------------------------------------------------------------------------
 
@@ -452,19 +532,14 @@ class SequentialTaskEnv(SceneManipulationEnv):
         for subtask_num in currently_running_subtasks:
             subtask: Subtask = self.task_plan[subtask_num]
             env_idx = torch.where(self.subtask_pointer == subtask_num)[0]
-            if isinstance(subtask, PickSubtask):
+            if self.subtask_objs[subtask_num] is not None:
                 obj_pose_wrt_base[env_idx] = vectorize_pose(
                     base_pose_inv * self.subtask_objs[subtask_num].pose
                 )[env_idx]
-            elif isinstance(subtask, PlaceSubtask):
-                obj_pose_wrt_base[env_idx] = vectorize_pose(
-                    base_pose_inv * self.subtask_objs[subtask_num].pose
-                )[env_idx]
+            if self.subtask_goals[subtask_num] is not None:
                 goal_pos_wrt_base[env_idx] = (
                     base_pose_inv * self.subtask_goals[subtask_num].pose
                 ).p[env_idx]
-            else:
-                raise AttributeError(f"{subtask.type} {type(subtask)} not supported")
 
         # already computed during evaluation is
         #       - is_grasped    :   part of success criteria (or set default)

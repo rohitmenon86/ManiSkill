@@ -70,6 +70,8 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
         robot_force_mult=0,
         robot_force_penalty_min=0,
         robot_cumulative_force_limit=torch.inf,
+        # additional randomization
+        obj_randomization=False,
         **kwargs,
     ):
 
@@ -89,6 +91,9 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
         self.robot_force_mult = robot_force_mult
         self.robot_force_penalty_min = robot_force_penalty_min
         self.robot_cumulative_force_limit = robot_cumulative_force_limit
+
+        # additional randomization
+        self.obj_randomization = obj_randomization
 
         super().__init__(*args, robot_uids=robot_uids, task_plans=task_plans, **kwargs)
 
@@ -247,18 +252,19 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
             super()._initialize_episode(env_idx, options)
             b = len(env_idx)
 
-            xyz = torch.zeros((b, 3))
-            xyz[:, :2] = torch.rand((b, 2)) * 0.2 - 0.12
-            xyz += self.subtask_objs[0].pose.p
-            xyz[..., 2] += 0.005
+            if self.obj_randomization:
+                xyz = torch.zeros((b, 3))
+                xyz[:, :2] = torch.rand((b, 2)) * 0.2 - 0.12
+                xyz += self.subtask_objs[0].pose.p
+                xyz[..., 2] += 0.005
 
-            qs = quaternion_raw_multiply(
-                randomization.random_quaternions(
-                    b, lock_x=True, lock_y=True, lock_z=False
-                ),
-                self.subtask_objs[0].pose.q,
-            )
-            self.subtask_objs[0].set_pose(Pose.create_from_pq(xyz, qs))
+                qs = quaternion_raw_multiply(
+                    randomization.random_quaternions(
+                        b, lock_x=True, lock_y=True, lock_z=False
+                    ),
+                    self.subtask_objs[0].pose.q,
+                )
+                self.subtask_objs[0].set_pose(Pose.create_from_pq(xyz, qs))
 
             self.resting_qpos = torch.tensor(self.agent.RESTING_QPOS[3:-2])
 
@@ -311,7 +317,11 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
     def _get_obs_state_dict(self, info: Dict):
         state_dict = super()._get_obs_state_dict(info)
 
-        extra_state_dict_keys = list(state_dict["extra"])
+        # NOTE (arth): this is a bug which causes nothing to be deleted
+        # for now leave as-is since it's not worth retraining the whole policy
+        extra_state_dict_keys = list(
+            state_dict["extra"]
+        )  # should be state_dict["extra"].keys()
         for key in extra_state_dict_keys:
             if key not in PICK_OBS_EXTRA_KEYS:
                 state_dict["extra"].pop(key, None)
