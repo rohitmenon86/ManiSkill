@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Sequence, Union
+from typing import List, Literal, Sequence, Union
 
 import fast_kinematics
 import numpy as np
@@ -295,8 +295,8 @@ class PDEEPoseControllerConfig(ControllerConfig):
     friction: Union[float, Sequence[float]] = 0.0
     ee_link: str = None
     urdf_path: str = None
-    rotation_convention: str = "quaternion"  # ["euler", "quaternion"]
-    frame: str = "ee"  # [base, ee, ee_align]
+    rotation_convention: Literal["euler", "quaternion"] = "euler"
+    frame: Literal["base", "ee", "ee_align"] = "ee"
     use_delta: bool = True
     use_target: bool = False
     interpolate: bool = False

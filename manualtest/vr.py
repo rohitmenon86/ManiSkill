@@ -358,7 +358,7 @@ class VRViewer:
 if __name__ == "__main__":
     env_id = "PegInsertionSide-v1"
     env_id = "FMBAssembly1-v1"
-    env = gym.make(env_id, control_mode="pd_ee_pose", enable_shadow=True)
+    env = gym.make(env_id, control_mode="pd_ee_pose_quat", enable_shadow=True)
     # env = RecordEpisode(env, save_video=True, output_dir="videos/")
     env.reset(seed=0)
     vr = VRViewer()

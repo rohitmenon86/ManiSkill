@@ -121,20 +121,8 @@ class Panda(BaseAgent):
             urdf_path=self.urdf_path,
             normalize_action=False,
         )
-        arm_pd_ee_pose_quat = PDEEPoseControllerConfig(
-            self.arm_joint_names,
-            None,
-            None,
-            self.arm_stiffness,
-            self.arm_damping,
-            self.arm_force_limit,
-            use_delta=False,
-            rotation_convention="quaternion",
-            frame="base",
-            ee_link=self.ee_link_name,
-            urdf_path=self.urdf_path,
-            normalize_action=False,
-        )
+        arm_pd_ee_pose_quat = deepcopy(arm_pd_ee_pose)
+        arm_pd_ee_pose_quat.rotation_convention = "quaternion"
         arm_pd_ee_delta_pose = PDEEPoseControllerConfig(
             self.arm_joint_names,
             -0.1,
