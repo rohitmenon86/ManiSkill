@@ -14,8 +14,6 @@ def main():
     env.reset(seed=0)
     i = 0
     while True:
-        # env.unwrapped._scene.px.cuda_rigid_body_data # this is fine, no increase in mem
-        # env.unwrapped._scene.px.cuda_rigid_body_data.torch() # this increases memory
         i += 1
         env.step(None)
         if i % 100 == 0:
