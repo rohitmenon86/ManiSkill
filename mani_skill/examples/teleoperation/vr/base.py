@@ -1,24 +1,15 @@
-import gymnasium as gym
+from typing import Literal
 import numpy as np
 import sapien
-from sapien import Entity, Scene
-from sapien import internal_renderer as R
 from sapien.render import (
-    RenderSystem,
     RenderVRDisplay,
-    RenderWindow,
-    SapienRenderer,
-    get_viewer_shader_dir,
 )
-from transforms3d import euler
 
-import mani_skill.envs
-from mani_skill.utils.wrappers.record import RecordEpisode
-
+from mani_skill.envs.sapien_env import BaseEnv
 controller_id2names = {1: "left", 2: "right"}
 
-
 class VRViewer:
+    """Basic class for streaming to and from a VR headset communicating via ALVR and SteamVR"""
     def __init__(self, visualize: bool = True):
         self.visualize = visualize
         self.vr = RenderVRDisplay()
@@ -32,7 +23,6 @@ class VRViewer:
         del self.controllers
         del self.vr
         del self.renderer_context
-        print("VRViewer deleted")
 
     def reset(self):
         self.controller_axes = None
@@ -108,11 +98,6 @@ class VRViewer:
         t2c = sapien.Pose()
         t2c.rpy = [0, self.ray_angle, 0]
         t2ws = [self.root_pose * c2r * t2c for c2r in self.controller_poses]
-
-        # c2r = self.controller_poses
-        # r2w = self.root_pose
-        # t2w = r2w * c2r * t2c
-        # print(t2w)
         return t2ws
 
     @property
@@ -152,9 +137,6 @@ class VRViewer:
                 'down', lower button pressed;
         """
         button_pressed = self.vr.get_controller_button_pressed(controller_id)
-        # print('button_pressed', button_pressed)
-        # button_touched = self.vr.get_controller_button_touched(controller_id)
-        # print('button_touched', button_touched)
         if button_pressed == 128:
             return "A"
         elif button_pressed == 2:
@@ -167,19 +149,7 @@ class VRViewer:
             return "both"
         else:
             return None
-        # if button_pressed & 0x200000000:
-        #     return 'up'
-        # elif ~ (button_pressed & 0x200000000) & button_pressed:
-        #     return 'down'
-        # else:
-        #     return None
-        # return self.vr.get_controller_button_pressed(controller_id)
 
-    # import line_profiler
-    # import atexit
-    # profile = line_profiler.LineProfiler()
-    # atexit.register(profile.print_stats)
-    # @profile
     def render(self):
         """
         update the VR viewer
@@ -324,13 +294,6 @@ class VRViewer:
         obj.shading_mode = 0
         obj.cast_shadow = False
 
-        # obj = render_scene.add_line_set(self.laser, node)
-        # obj.set_scale([40, 0, 0])
-        # obj.line_width = 20
-        # ray_pose = sapien.Pose()
-        # ray_pose.rpy = [0, self.ray_angle, 0]
-        # obj.set_rotation(ray_pose.q)
-
         node.set_scale([0.025, 0.025, 0.025])
 
         return node
@@ -354,78 +317,45 @@ class VRViewer:
         node.transparency = 1
         return node
 
+class VRSimTeleopInterface:
+    """
+    Base class for implementing VR headsets for teleoperation of two-finger robots, dextrous robots, and mobile robots in simulation.
 
-if __name__ == "__main__":
-    env_id = "PegInsertionSide-v1"
-    env_id = "FMBAssembly1-v1"
-    env = gym.make(env_id, control_mode="pd_ee_pose_quat", enable_shadow=True)
-    # env = RecordEpisode(env, save_video=True, output_dir="videos/")
-    env.reset(seed=0)
-    vr = VRViewer()
-    vr.root_pose = sapien.Pose([-0.615, 0, 0])
-    print(vr.root_pose)
+    for mobile robots, only robots with typical mobile bases (not legs) are easily supported
+    """
+    key_mapping = dict()
 
-    # Calibration step for EE control
-    # teleop_sys.calibrate()
-    offset_pose = None
 
-    def calibrate():
-        global offset_pose
-        vr.set_scene(env.unwrapped._scene.sub_scenes[0])
-        vr.root_pose = sapien.Pose()
+    def __init__(self, env: BaseEnv) -> None:
+        self.vr = VRViewer()
+
+    def check_action(self, action_type: Literal["quit", "calibrate_ee", "reset"]):
+        """
+        Check if one of the given system actions is active (e.g. user is pressing a button on a meta quest controller or making a gesture while using vision pro)
+
+        Implementing the sim teleop interface class requires implementing this function to check if the action type given is active on the controller
+        - "quit": Action to stop data collection
+        - "calibrate_ee": Action to calibrate 1 or 2 end-effectors
+        - "reset": Action to stop the current episode data collection and begin collecting another episode.
+        """
+        raise NotImplementedError()
+
+    def calibrate_ee(self):
+        """
+        Run any code to calibrate such that the desired robot end-effector is placed directly at the controller position.
+
+        This is called each time the environment is reset
+        """
+        raise NotImplementedError()
+
+    def get_hand_poses(self):
+        """
+        Should return the pose of the hands of the human teleoperator as a position and quaternion. It is recommended to align this hand pose with either
+        the wrist of the hand or the center of the palm.
+        """
+        raise NotImplementedError()
+
+    def collect(self):
+        """Begin the data collection process"""
         while True:
-            # env.render_human()
-            vr.render()
-            rp = vr.controller_right_poses
-            if vr.pressed_button(2) == "down":
-                offset_pose = rp
-                break
-
-    calibrate()
-    vr.root_pose = sapien.Pose(-offset_pose.p + env.unwrapped.agent.tcp.pose.sp.p)
-    # this ensures that the scene is reset so that the hand in VR is at the same position as the chosen end-effector
-    gripper_action = -1
-
-    orig_tcp_q = env.unwrapped.agent.tcp.pose.sp.q.copy()
-    orig_controller_q = (vr.root_pose * vr.controller_right_poses).q
-    while True:
-        # env.render_human()
-        for obj in env.unwrapped._hidden_objects:
-            obj.show_visual()
-        vr.render()
-        rp = vr.root_pose * vr.controller_right_poses
-
-        action = env.action_space.sample() * 0
-        # q = sapien.Pose(q=orig_tcp_q)* sapien.Pose(q=rp.q) # absolute
-        # q = sapien.Pose(q=orig_tcp_q) * sapien.Pose(q=orig_controller_q).inv() * sapien.Pose(q=rp.q) # relative to calibration
-        q = (rp * sapien.Pose(q=euler.euler2quat(0, np.pi, np.pi))).q
-        target_tcp_pose = sapien.Pose(p=rp.p, q=q)
-        action = env.action_space.sample() * 0
-        action[:3] = target_tcp_pose.p
-        # action[:3] = rp.p
-        if env.control_mode == "pd_ee_pose_quat":
-            rot = np.array(euler.quat2euler(target_tcp_pose.q))
-            orig_rot = np.array(euler.quat2euler(orig_tcp_q))
-            # print(orig_rot, orig_rot - rot)
-            # action[3:6] = rot
-            action[3:7] = target_tcp_pose.q
-        if vr.pressed_button(2) == "A":
-            print("RECALIBRATE")
-            env.reset(options=dict(reconfigure=True))
-            calibrate()
-            vr.root_pose = sapien.Pose(
-                -offset_pose.p + env.unwrapped.agent.tcp.pose.sp.p
-            )
-        gripper_action = 1
-        if vr.pressed_button(2) == "up":
-            gripper_action = -1
-
-        action[-1] = gripper_action
-        env.step(action)
-
-        if vr.pressed_button(2) == "B":
-            break
-
-    env.close()
-    del env
-    del vr
+            self.calibrate_ee()
