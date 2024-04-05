@@ -210,11 +210,14 @@ class PDEEPoseController(PDEEPosController):
     config: "PDEEPoseControllerConfig"
 
     def _initialize_action_space(self):
+        rot_dims = 3
+        if self.config.rotation_convention == "quaternion":
+            rot_dims = 4
         low = np.float32(
             np.hstack(
                 [
                     np.broadcast_to(self.config.pos_lower, 3),
-                    np.broadcast_to(-self.config.rot_bound, 3),
+                    np.broadcast_to(-self.config.rot_bound, rot_dims),
                 ]
             )
         )
@@ -222,7 +225,7 @@ class PDEEPoseController(PDEEPosController):
             np.hstack(
                 [
                     np.broadcast_to(self.config.pos_upper, 3),
-                    np.broadcast_to(self.config.rot_bound, 3),
+                    np.broadcast_to(self.config.rot_bound, rot_dims),
                 ]
             )
         )
@@ -265,10 +268,14 @@ class PDEEPoseController(PDEEPosController):
                 raise NotImplementedError(self.config.frame)
         else:
             assert self.config.frame == "base", self.config.frame
-            target_pos, target_rot = action[:, 0:3], action[:, 3:6]
-            target_quat = matrix_to_quaternion(
-                euler_angles_to_matrix(target_rot, "XYZ")
-            )
+            target_pos = action[:, 0:3]
+            if self.config.rotation_convention == "euler":
+                target_rot = action[:, 3:6]
+                target_quat = matrix_to_quaternion(
+                    euler_angles_to_matrix(target_rot, "XYZ")
+                )
+            elif self.config.rotation_convention == "quaternion":
+                target_quat = action[:, 3:7]
             # target_quat = Rotation.from_rotvec(target_rot).as_quat()[[3, 0, 1, 2]]
             target_pose = self.articulation.pose.inv() * Pose.create_from_pq(
                 target_pos, target_quat
@@ -288,6 +295,7 @@ class PDEEPoseControllerConfig(ControllerConfig):
     friction: Union[float, Sequence[float]] = 0.0
     ee_link: str = None
     urdf_path: str = None
+    rotation_convention: str = "quaternion"  # ["euler", "quaternion"]
     frame: str = "ee"  # [base, ee, ee_align]
     use_delta: bool = True
     use_target: bool = False

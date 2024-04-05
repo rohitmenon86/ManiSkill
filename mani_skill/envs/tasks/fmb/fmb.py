@@ -17,7 +17,7 @@ from mani_skill.utils.scene_builder.table import TableSceneBuilder
 
 
 # TODO (stao): Complete this task example
-# @register_env("FMBAssembly1-v1", max_episode_steps=200)
+@register_env("FMBAssembly1-v1", max_episode_steps=200)
 class FMBAssembly1Env(BaseEnv):
     """
     Task Description
