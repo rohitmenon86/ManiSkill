@@ -5,6 +5,7 @@ from sapien.render import (
     RenderVRDisplay,
 )
 
+import gymnasium as gym
 from mani_skill.envs.sapien_env import BaseEnv
 controller_id2names = {1: "left", 2: "right"}
 
@@ -326,8 +327,13 @@ class VRSimTeleopInterface:
     key_mapping = dict()
 
 
-    def __init__(self, env: BaseEnv) -> None:
+    def __init__(self, env: gym.Env) -> None:
         self.vr = VRViewer()
+        self.env = env
+
+    @property
+    def base_env(self) -> BaseEnv:
+        return self.env.unwrapped
 
     def check_action(self, action_type: Literal["quit", "calibrate_ee", "reset"]):
         """
@@ -346,7 +352,15 @@ class VRSimTeleopInterface:
 
         This is called each time the environment is reset
         """
-        raise NotImplementedError()
+        self.vr.set_scene(self.env.unwrapped._scene.sub_scenes[0])
+        self.vr.root_pose = sapien.Pose()
+        while True:
+            # env.render_human()
+            self.vr.render()
+            rp = self.vr.controller_right_poses
+            if self.vr.pressed_button(2) == "down":
+                offset_pose = rp
+                break
 
     def get_hand_poses(self):
         """
