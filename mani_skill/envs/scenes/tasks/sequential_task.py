@@ -30,6 +30,8 @@ from .planner import (
     TaskPlan,
 )
 
+UNIQUE_SUCCESS_SUBTASK_TYPE = 100_000
+
 
 def all_equal(array: list):
     return len(set(array)) == 1
@@ -340,7 +342,9 @@ class SequentialTaskEnv(SceneManipulationEnv):
 
         fail = (self.subtask_steps_left <= 0) & ~success
 
-        subtask_type = torch.full_like(self.subtask_pointer, len(self.task_plan))
+        subtask_type = torch.full_like(
+            self.subtask_pointer, UNIQUE_SUCCESS_SUBTASK_TYPE
+        )
         subtask_type[~success] = self.task_ids[self.subtask_pointer[[~success]]]
 
         return dict(
