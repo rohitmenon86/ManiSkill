@@ -1,2 +1,2 @@
-from .base import VRViewer
-from .meta_quest_3 import MetaQuest3SimTeleop
+from .base import VRTeleopInterface
+from .meta_quest_3 import MetaQuest3SimTeleopWrapper

@@ -9,32 +9,38 @@ import gymnasium as gym
 from mani_skill.envs.sapien_env import BaseEnv
 controller_id2names = {1: "left", 2: "right"}
 
-class VRViewer:
+class VRTeleopInterface:
     """Basic class for streaming to and from a VR headset communicating via ALVR and SteamVR"""
-    def __init__(self, visualize: bool = True):
+    def __init__(self, env: BaseEnv, visualize: bool = True):
+        self.env = env
         self.visualize = visualize
-        self.vr = RenderVRDisplay()
-        self.controllers = self.vr.get_controller_ids()
+        self.vr_display = RenderVRDisplay()
+        self.controllers = self.vr_display.get_controller_ids()
         self.renderer_context = sapien.render.SapienRenderer()._internal_context
-        self._create_visual_models()
-
         self.reset()
+        assert self.base_env.num_envs == 1, "can only do VR teleop when there is only one environment running"
 
     def __del__(self):
         del self.controllers
-        del self.vr
+        del self.vr_display
         del self.renderer_context
 
     def reset(self):
+        self._create_visual_models()
         self.controller_axes = None
         self.marker_spheres = None
+        self.vr_display.set_scene(self.base_env._scene.sub_scenes[0])
 
     def set_scene(self, scene):
         """
         register the VR viewer to the scene
         """
         self.scene = scene
-        self.vr.set_scene(scene)
+        self.vr_display.set_scene(scene)
+
+    @property
+    def base_env(self) -> BaseEnv:
+        return self.env.unwrapped
 
     @property
     def root_pose(self):
@@ -42,7 +48,7 @@ class VRViewer:
         return the root pose of the VR viewer
         see set_root_pose for more details
         """
-        return self.vr.root_pose
+        return self.vr_display.root_pose
 
     @root_pose.setter
     def root_pose(self, pose):
@@ -51,14 +57,7 @@ class VRViewer:
         pose: sapien.Pose, ([x, y, z], [qx, qy, qz, qw]), the position and quaternion of the root pose
         root_pose: the root pose of the VR viewer. which is the foot of the VR viewer
         """
-        self.vr.root_pose = pose
-
-    @property
-    def head_pose(self):
-        """
-        return the head pose of the VR viewer
-        """
-        return self.vr.get_hmd_pose()
+        self.vr_display.root_pose = pose
 
     @property
     def controllers_names(self, controller_id):
@@ -69,27 +68,48 @@ class VRViewer:
         """
         return controller_id2names[controller_id]
 
+    # ---------------------------------------------------------------------------- #
+    # Functions dependent on VR system used
+    # ---------------------------------------------------------------------------- #
+    def get_user_action(self) -> Literal["quit", "calibrate_ee", "reset"]:
+        """
+        Check if one of the given system actions is active (e.g. user is pressing a button on a meta quest controller or making a gesture while using vision pro)
+
+        Implementing the sim teleop interface class requires implementing this function to check if the action type given is active on the controller
+        - "quit": Action to stop data collection
+        - "calibrate_ee": Action to calibrate 1 or 2 end-effectors
+        - "reset": Action to stop the current episode data collection and begin collecting another episode.
+        """
+        raise NotImplementedError()
+
+    @property
+    def head_pose(self):
+        """
+        return the head pose of the VR viewer
+        """
+        return self.vr_display.get_hmd_pose()
+
     @property
     def controller_poses(self):
         """
         return the controller poses, [left_pose, right_pose]
         pose: in format of sapien.Pose, ([x, y, z], [qx, qy, qz, qw]), the position and quaternion of the root pose
         """
-        return [self.vr.get_controller_pose(c) for c in self.controllers]
+        return [self.vr_display.get_controller_pose(c) for c in self.controllers]
 
     @property
     def controller_left_poses(self):
         """
         return the left controller pose
         """
-        return self.vr.get_controller_pose(self.controllers[0])
+        return self.vr_display.get_controller_pose(self.controllers[0])
 
     @property
     def controller_right_poses(self):
         """
         return the right controller pose
         """
-        return self.vr.get_controller_pose(self.controllers[1])
+        return self.vr_display.get_controller_pose(self.controllers[1])
 
     @property
     def controller_hand_poses(self):
@@ -127,29 +147,7 @@ class VRViewer:
 
     @property
     def render_scene(self):
-        return self.vr._internal_scene
-
-    def pressed_button(self, controller_id):
-        """
-        return the button pressed status
-        controller_id: the id of the controller, [1, 2]
-        return: None, not pressed;
-                'up', upper button pressed;
-                'down', lower button pressed;
-        """
-        button_pressed = self.vr.get_controller_button_pressed(controller_id)
-        if button_pressed == 128:
-            return "A"
-        elif button_pressed == 2:
-            return "B"
-        if button_pressed == 8589934592:
-            return "up"
-        elif button_pressed == 17179869188:
-            return "down"
-        elif button_pressed == 25769803780:
-            return "both"
-        else:
-            return None
+        return self.vr_display._internal_scene
 
     def render(self):
         """
@@ -157,8 +155,8 @@ class VRViewer:
         """
         if self.visualize:
             self._update_controller_axes()
-        self.vr.update_render()
-        self.vr.render()
+        self.vr_display.update_render()
+        self.vr_display.render()
 
     @property
     def ray_angle(self):
@@ -306,7 +304,7 @@ class VRViewer:
             ]
 
         for n, pose in zip(self.controller_axes, self.controller_poses):
-            c2w = self.vr.root_pose * pose
+            c2w = self.vr_display.root_pose * pose
             n.set_position(c2w.p)
             n.set_rotation(c2w.q)
 
@@ -317,59 +315,3 @@ class VRViewer:
         node.cast_shadow = False
         node.transparency = 1
         return node
-
-class VRSimTeleopInterface:
-    """
-    Base class for implementing VR headsets for teleoperation of two-finger robots, dextrous robots, and mobile robots in simulation.
-
-    for mobile robots, only robots with typical mobile bases (not legs) are easily supported
-    """
-    key_mapping = dict()
-
-
-    def __init__(self, env: gym.Env) -> None:
-        self.vr = VRViewer()
-        self.env = env
-
-    @property
-    def base_env(self) -> BaseEnv:
-        return self.env.unwrapped
-
-    def check_action(self, action_type: Literal["quit", "calibrate_ee", "reset"]):
-        """
-        Check if one of the given system actions is active (e.g. user is pressing a button on a meta quest controller or making a gesture while using vision pro)
-
-        Implementing the sim teleop interface class requires implementing this function to check if the action type given is active on the controller
-        - "quit": Action to stop data collection
-        - "calibrate_ee": Action to calibrate 1 or 2 end-effectors
-        - "reset": Action to stop the current episode data collection and begin collecting another episode.
-        """
-        raise NotImplementedError()
-
-    def calibrate_ee(self):
-        """
-        Run any code to calibrate such that the desired robot end-effector is placed directly at the controller position.
-
-        This is called each time the environment is reset
-        """
-        self.vr.set_scene(self.env.unwrapped._scene.sub_scenes[0])
-        self.vr.root_pose = sapien.Pose()
-        while True:
-            # env.render_human()
-            self.vr.render()
-            rp = self.vr.controller_right_poses
-            if self.vr.pressed_button(2) == "down":
-                offset_pose = rp
-                break
-
-    def get_hand_poses(self):
-        """
-        Should return the pose of the hands of the human teleoperator as a position and quaternion. It is recommended to align this hand pose with either
-        the wrist of the hand or the center of the palm.
-        """
-        raise NotImplementedError()
-
-    def collect(self):
-        """Begin the data collection process"""
-        while True:
-            self.calibrate_ee()
