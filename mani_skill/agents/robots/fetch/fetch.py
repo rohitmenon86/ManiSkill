@@ -183,6 +183,35 @@ class Fetch(BaseAgent):
         arm_pd_ee_delta_pose_align = deepcopy(arm_pd_ee_delta_pose)
         arm_pd_ee_delta_pose_align.frame = "ee_align"
 
+        arm_pd_ee_pos = PDEEPosControllerConfig(
+            self.arm_joint_names,
+            None,
+            None,
+            self.arm_stiffness,
+            self.arm_damping,
+            self.arm_force_limit,
+            use_delta=False,
+            frame="base",
+            ee_link=self.ee_link_name,
+            urdf_path=self.urdf_path,
+            normalize_action=False,
+        )
+        arm_pd_ee_pose = PDEEPoseControllerConfig(
+            self.arm_joint_names,
+            None,
+            None,
+            self.arm_stiffness,
+            self.arm_damping,
+            self.arm_force_limit,
+            use_delta=False,
+            frame="base",
+            ee_link=self.ee_link_name,
+            urdf_path=self.urdf_path,
+            normalize_action=False,
+        )
+        arm_pd_ee_pose_quat = deepcopy(arm_pd_ee_pose)
+        arm_pd_ee_pose_quat.rotation_convention = "quaternion"
+
         # PD joint velocity
         arm_pd_joint_vel = PDJointVelControllerConfig(
             self.arm_joint_names,
@@ -277,6 +306,24 @@ class Fetch(BaseAgent):
             ),
             pd_ee_delta_pose_align=dict(
                 arm=arm_pd_ee_delta_pose_align,
+                gripper=gripper_pd_joint_pos,
+                body=body_pd_joint_delta_pos,
+                base=base_pd_joint_vel,
+            ),
+            pd_ee_pos=dict(
+                arm=arm_pd_ee_pos,
+                gripper=gripper_pd_joint_pos,
+                body=body_pd_joint_delta_pos,
+                base=base_pd_joint_vel,
+            ),
+            pd_ee_pose=dict(
+                arm=arm_pd_ee_pose,
+                gripper=gripper_pd_joint_pos,
+                body=body_pd_joint_delta_pos,
+                base=base_pd_joint_vel,
+            ),
+            pd_ee_pose_quat=dict(
+                arm=arm_pd_ee_pose_quat,
                 gripper=gripper_pd_joint_pos,
                 body=body_pd_joint_delta_pos,
                 base=base_pd_joint_vel,

@@ -3,6 +3,12 @@ import sapien
 from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.examples.teleoperation.vr.base import VRTeleopInterface
 
+BUTTONS = {
+    "A": 2 << 6,
+    "B": 2,
+    "up_trigger": 2 << 32,
+    "down_trigger": 2 << 33 | 2 << 1
+}
 
 class MetaQuest3SimTeleopWrapper(VRTeleopInterface):
     def __init__(self, env: BaseEnv) -> None:
@@ -16,11 +22,13 @@ class MetaQuest3SimTeleopWrapper(VRTeleopInterface):
             return "reset" # "A"
         elif right_button_pressed == 2:
             return "quit" # "B"
-        elif right_button_pressed == 8589934592:
+        elif right_button_pressed == 2 << 32:
             return "trigger_1" # "up trigger"
-        elif right_button_pressed == 17179869188:
+        elif right_button_pressed == 2 << 33 | 2 << 1:
             return "trigger_2" # "down trigger"
-        elif right_button_pressed == 25769803780:
+        elif right_button_pressed == BUTTONS["up_trigger"] | BUTTONS["down_trigger"]:
             return None # "both up and down"
         else:
             return None
+
+    # def get_mobile_base_action

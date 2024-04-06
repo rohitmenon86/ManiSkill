@@ -22,3 +22,21 @@ Then enable developer mode
 
 ## Installing ALVR
 
+
+
+## Running
+
+
+Control Panda arm 
+```bash
+python mani_skill/examples/teleoperation/vr_panda.py -e "StackCube-v1"
+```
+
+Control fetch
+```bash
+python mani_skill/examples/teleoperation/vr_fetch.py -e "ReplicaCAD_SceneManipulation-v1"
+```
+
+Control two robot task setups
+```bash
+```

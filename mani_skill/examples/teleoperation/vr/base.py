@@ -17,6 +17,7 @@ class VRTeleopInterface:
         self.vr_display = RenderVRDisplay()
         self.controllers = self.vr_display.get_controller_ids()
         self.renderer_context = sapien.render.SapienRenderer()._internal_context
+        self.scene = None
         self.reset()
         assert self.base_env.num_envs == 1, "can only do VR teleop when there is only one environment running"
 
@@ -26,17 +27,12 @@ class VRTeleopInterface:
         del self.renderer_context
 
     def reset(self):
-        self._create_visual_models()
+
         self.controller_axes = None
         self.marker_spheres = None
+        if self.scene != self.base_env._scene.sub_scenes[0]:
+            self._create_visual_models()
         self.vr_display.set_scene(self.base_env._scene.sub_scenes[0])
-
-    def set_scene(self, scene):
-        """
-        register the VR viewer to the scene
-        """
-        self.scene = scene
-        self.vr_display.set_scene(scene)
 
     @property
     def base_env(self) -> BaseEnv:
