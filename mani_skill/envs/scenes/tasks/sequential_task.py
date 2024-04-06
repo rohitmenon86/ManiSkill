@@ -460,7 +460,7 @@ class SequentialTaskEnv(SceneManipulationEnv):
 
         goal_pose_wrt_base = self.agent.base_link.pose.inv() * goal.pose
         targ = goal_pose_wrt_base.p[..., :2][env_idx]
-        uc_targ = targ / torch.norm(targ, dim=1)
+        uc_targ = targ / torch.norm(targ, dim=1).unsqueeze(-1).expand(*targ.shape)
         rots = torch.sign(uc_targ[..., 1]) * torch.arccos(uc_targ[..., 0])
         oriented_correctly = torch.abs(rots) < 0.5
 
