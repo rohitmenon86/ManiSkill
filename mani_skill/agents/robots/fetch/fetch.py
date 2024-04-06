@@ -44,8 +44,8 @@ class Fetch(BaseAgent):
             CameraConfig(
                 uid="fetch_head",
                 pose=Pose.create_from_pq([0, 0, 0], [1, 0, 0, 0]),
-                width=128,
-                height=128,
+                width=512,
+                height=512,
                 fov=2,
                 near=0.01,
                 far=100,
@@ -54,8 +54,8 @@ class Fetch(BaseAgent):
             CameraConfig(
                 uid="fetch_hand",
                 pose=Pose.create_from_pq([-0.1, 0, 0.1], [1, 0, 0, 0]),
-                width=128,
-                height=128,
+                width=512,
+                height=512,
                 fov=2,
                 near=0.01,
                 far=100,
@@ -268,6 +268,16 @@ class Fetch(BaseAgent):
             use_delta=True,
         )
 
+        body_pd_joint_pos = PDJointPosControllerConfig(
+            self.body_joint_names,
+            None,
+            None,
+            self.body_stiffness,
+            self.body_damping,
+            self.body_force_limit,
+            use_delta=False,
+        )
+
         # -------------------------------------------------------------------------- #
         # Base
         # -------------------------------------------------------------------------- #
@@ -325,7 +335,7 @@ class Fetch(BaseAgent):
             pd_ee_pose_quat=dict(
                 arm=arm_pd_ee_pose_quat,
                 gripper=gripper_pd_joint_pos,
-                body=body_pd_joint_delta_pos,
+                body=body_pd_joint_pos,
                 base=base_pd_joint_vel,
             ),
             # TODO(jigu): how to add boundaries for the following controllers
