@@ -213,7 +213,7 @@ class Fetch(BaseAgent):
         arm_pd_ee_pose_quat.rotation_convention = "quaternion"
 
         whole_body_pd_ee_pose = PDEEPoseControllerConfig(
-            self.body_joint_names + self.arm_joint_names,
+            self.base_joint_names + self.body_joint_names + self.arm_joint_names,
             None,
             None,
             self.arm_stiffness,
@@ -355,7 +355,6 @@ class Fetch(BaseAgent):
                 base=base_pd_joint_vel,
             ),
             pd_ee_pose_quat_whole_body=dict(
-                base=base_pd_joint_vel,
                 whole_body=whole_body_pd_ee_pose_quat,
                 gripper=gripper_pd_joint_pos,
             ),

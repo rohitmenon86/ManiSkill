@@ -64,8 +64,10 @@ def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
         base_action = np.zeros([3])
 
         # determine base action
-        base_action[0] = joystick_xy[1] * MOBILE_SPEED
-        base_action[2] = -joystick_xy[0] * MOBILE_SPEED
+        if abs(joystick_xy[1]) > abs(joystick_xy[0]):
+            base_action[0] = joystick_xy[1] * MOBILE_SPEED
+        else:
+            base_action[2] = -joystick_xy[0] * MOBILE_SPEED
 
 
         body_action = np.zeros([3])
@@ -155,10 +157,10 @@ def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
                 # action_dict = dict(base=base_action, arm=ee_action, body=body_action, gripper=gripper_action)
 
                 # heuristic to determine whether to apply base action is based on EE-dist.
-                if np.linalg.norm(ee_action[:2] - vr.base_env.agent.tcp.pose.sp.p[:2]) > 1e-1:
-                    diffs = ee_action[:2] - vr.base_env.agent.tcp.pose.sp.p[:2]
-                    base_action[:2] = 0.25 * diffs / np.linalg.norm(diffs)
-                action_dict = dict(whole_body=ee_action, base=base_action, gripper=gripper_action)
+                # if np.linalg.norm(ee_action[:2] - vr.base_env.agent.tcp.pose.sp.p[:2]) > 1e-1:
+                #     diffs = ee_action[:2] - vr.base_env.agent.tcp.pose.sp.p[:2]
+                #     base_action[:2] = 0.25 * diffs / np.linalg.norm(diffs)
+                action_dict = dict(whole_body=ee_action, gripper=gripper_action)
 
                 action = env.agent.controllers["pd_ee_pose_quat_whole_body"].from_action_dict(action_dict)
                 env.step(dict(control_mode="pd_ee_pose_quat_whole_body", action=action))
