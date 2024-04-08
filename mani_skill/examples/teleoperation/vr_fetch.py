@@ -2,6 +2,7 @@ import copy
 import gymnasium as gym
 import numpy as np
 import sapien
+from scipy import linalg
 import mani_skill.envs
 import argparse
 from mani_skill.utils import common
@@ -76,6 +77,8 @@ def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
 def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
     ### 1. Calibrate human into the scene and robot
     vr.reset()
+    vr.base_env.agent.set_control_mode("pd_ee_pose_quat_whole_body")
+    vr.base_env.agent.set_control_mode("pd_joint_pos")
     vr.root_pose = sapien.Pose()
     offset_poses = [None, None]
     while True:
@@ -149,16 +152,23 @@ def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
                 ee_action = np.zeros(7)
                 ee_action[:3] = target_tcp_pose.p
                 ee_action[3:7] = target_tcp_pose.q
-                action_dict = dict(base=base_action, arm=ee_action, body=body_action, gripper=gripper_action)
-                action = env.agent.controller.from_action_dict(action_dict)
-                env.step(dict(control_mode="pd_ee_pose_quat", action=action))
+                # action_dict = dict(base=base_action, arm=ee_action, body=body_action, gripper=gripper_action)
+
+                # heuristic to determine whether to apply base action is based on EE-dist.
+                if np.linalg.norm(ee_action[:2] - vr.base_env.agent.tcp.pose.sp.p[:2]) > 1e-1:
+                    diffs = ee_action[:2] - vr.base_env.agent.tcp.pose.sp.p[:2]
+                    base_action[:2] = 0.25 * diffs / np.linalg.norm(diffs)
+                action_dict = dict(whole_body=ee_action, base=base_action, gripper=gripper_action)
+
+                action = env.agent.controllers["pd_ee_pose_quat_whole_body"].from_action_dict(action_dict)
+                env.step(dict(control_mode="pd_ee_pose_quat_whole_body", action=action))
             elif mode == "mobile":
                 # TODO (stao): what is the axis int argument for? seems to only work when i set it to 0
                 joystick_xy = vr.vr_display.get_controller_axis_state(2, 0)
                 base_action[0] = joystick_xy[1] * MOBILE_SPEED
                 base_action[2] = -joystick_xy[0] * MOBILE_SPEED * 0.75
                 action_dict = dict(base=base_action, arm=last_arm_joint_pos, body=body_action, gripper=gripper_action)
-                action = env.agent.controller.from_action_dict(action_dict)
+                action = env.agent.controllers["pd_joint_pos"].from_action_dict(action_dict)
                 env.step(dict(control_mode="pd_joint_pos", action=action))
 
 def main(args):

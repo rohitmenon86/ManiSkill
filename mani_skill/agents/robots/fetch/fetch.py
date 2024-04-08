@@ -212,6 +212,22 @@ class Fetch(BaseAgent):
         arm_pd_ee_pose_quat = deepcopy(arm_pd_ee_pose)
         arm_pd_ee_pose_quat.rotation_convention = "quaternion"
 
+        whole_body_pd_ee_pose = PDEEPoseControllerConfig(
+            self.body_joint_names + self.arm_joint_names,
+            None,
+            None,
+            self.arm_stiffness,
+            self.arm_damping,
+            self.arm_force_limit,
+            use_delta=False,
+            frame="base",
+            ee_link=self.ee_link_name,
+            urdf_path=self.urdf_path,
+            normalize_action=False,
+        )
+        whole_body_pd_ee_pose_quat = deepcopy(whole_body_pd_ee_pose)
+        whole_body_pd_ee_pose_quat.rotation_convention = "quaternion"
+
         # PD joint velocity
         arm_pd_joint_vel = PDJointVelControllerConfig(
             self.arm_joint_names,
@@ -337,6 +353,11 @@ class Fetch(BaseAgent):
                 gripper=gripper_pd_joint_pos,
                 body=body_pd_joint_pos,
                 base=base_pd_joint_vel,
+            ),
+            pd_ee_pose_quat_whole_body=dict(
+                base=base_pd_joint_vel,
+                whole_body=whole_body_pd_ee_pose_quat,
+                gripper=gripper_pd_joint_pos,
             ),
             # TODO(jigu): how to add boundaries for the following controllers
             pd_joint_target_delta_pos=dict(

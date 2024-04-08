@@ -136,7 +136,8 @@ class ReplicaCADSceneBuilder(SceneBuilder):
                 builder.add_visual_from_file(visual_file)
                 # for static (and dynamic) objects you don't need to use pre convex decomposed meshes and instead can directly
                 # add the non convex collision mesh based on the visual mesh
-                builder.add_nonconvex_collision_from_file(visual_file)
+                if "frl_apartment_mat" not in visual_file:
+                    builder.add_nonconvex_collision_from_file(visual_file)
                 builder.initial_pose = pose
                 actor = builder.build_static(name=f"{obj_meta['template_name']}-{i}")
 
