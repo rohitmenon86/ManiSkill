@@ -6,6 +6,7 @@ from mani_skill.examples.teleoperation.vr.base import VRTeleopInterface
 BUTTONS = {
     "A": 2 << 6,
     "B": 2,
+    "middle_trigger": 2 << 31,
     "up_trigger": 2 << 32,
     "down_trigger": 2 << 33 | 2 << 1
 }
@@ -26,6 +27,8 @@ class MetaQuest3SimTeleopWrapper(VRTeleopInterface):
             return "trigger_1" # "up trigger"
         elif right_button_pressed == 2 << 33 | 2 << 1:
             return "trigger_2" # "down trigger"
+        elif right_button_pressed == BUTTONS["middle_trigger"]:
+            return "trigger_3"
         elif right_button_pressed == BUTTONS["up_trigger"] | BUTTONS["down_trigger"]:
             return None # "both up and down"
         else:

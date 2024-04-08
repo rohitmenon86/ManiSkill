@@ -188,7 +188,10 @@ class ReplicaCADSceneBuilder(SceneBuilder):
     def initialize(self, env_idx: torch.Tensor):
         if self.env.robot_uids == "fetch":
             agent: Fetch = self.env.agent
-            agent.reset(agent.RESTING_QPOS)
+            qpos = agent.RESTING_QPOS.copy()
+            qpos[0] = -0.8
+            qpos[1] = -1
+            agent.reset(qpos)
 
             # set robot to be inside the small room in the middle
             # agent.robot.set_pose(sapien.Pose([0.8, 1.9, 0.001]))
@@ -196,7 +199,7 @@ class ReplicaCADSceneBuilder(SceneBuilder):
             # qpos[:, 2] = 2.9
             # agent.robot.set_qpos(qpos)
 
-            agent.robot.set_pose(sapien.Pose([-0.8, -1, 0.001]))
+            agent.robot.set_pose(sapien.Pose([0, 0, 0.001]))
 
         else:
             raise NotImplementedError(self.env.robot_uids)
