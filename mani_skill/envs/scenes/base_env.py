@@ -40,7 +40,7 @@ class SceneManipulationEnv(BaseEnv):
     def __init__(
         self,
         *args,
-        robot_uids="fetch",
+        robot_uids="floating_panda_gripper",
         robot_init_qpos_noise=0.02,
         fixed_scene=True,
         scene_builder_cls: Union[str, SceneBuilder] = "ReplicaCAD",
@@ -126,17 +126,17 @@ class SceneManipulationEnv(BaseEnv):
 
     @property
     def _human_render_camera_configs(self):
+        room_camera_pose = sapien_utils.look_at([0.4, -4, 3.75], [-1, -2.5, 0.5])
+        room_camera_config = CameraConfig(
+            "render_camera",
+            room_camera_pose,
+            512,
+            512,
+            1,
+            0.01,
+            100,
+        )
         if self.robot_uids == "fetch":
-            room_camera_pose = sapien_utils.look_at([0.4, -4, 3.75], [-1, -2.5, 0.5])
-            room_camera_config = CameraConfig(
-                "render_camera",
-                room_camera_pose,
-                512,
-                512,
-                1,
-                0.01,
-                100,
-            )
             robot_camera_pose = sapien_utils.look_at([2, 0, 1], [0, 0, -1])
             robot_camera_config = CameraConfig(
                 "robot_render_camera",
@@ -149,9 +149,4 @@ class SceneManipulationEnv(BaseEnv):
                 mount=self.agent.torso_lift_link,
             )
             return [room_camera_config, robot_camera_config]
-
-        if self.robot_uids == "panda":
-            pose = sapien_utils.look_at([0.4, 0.4, 0.8], [0.0, 0.0, 0.4])
-        else:
-            pose = sapien_utils.look_at([0, 10, -3], [0, 0, 0])
-        return CameraConfig("render_camera", pose, 512, 512, 1, 0.01, 100)
+        return [room_camera_config]

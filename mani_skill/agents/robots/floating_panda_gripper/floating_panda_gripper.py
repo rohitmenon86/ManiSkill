@@ -5,13 +5,26 @@ from mani_skill.agents.base_agent import BaseAgent
 from mani_skill.agents.controllers import *
 from mani_skill.agents.registration import register_agent
 from mani_skill.sensors.camera import CameraConfig
+from mani_skill.utils import sapien_utils
 
 
 @register_agent()
 class FloatingPandaGripper(BaseAgent):
     uid = "floating_panda_gripper"
     urdf_path = f"{PACKAGE_ASSET_DIR}/robots/panda/panda_v2_gripper.urdf"  # You can use f"{PACKAGE_ASSET_DIR}" to reference a urdf file in the mani_skill /assets package folder
-    urdf_config = dict()
+    urdf_config = dict(
+        _materials=dict(
+            gripper=dict(static_friction=2.0, dynamic_friction=2.0, restitution=0.0)
+        ),
+        link=dict(
+            panda_leftfinger=dict(
+                material="gripper", patch_radius=0.1, min_patch_radius=0.1
+            ),
+            panda_rightfinger=dict(
+                material="gripper", patch_radius=0.1, min_patch_radius=0.1
+            ),
+        ),
+    )
 
     def __init__(self, *args, **kwargs):
         self.root_joint_names = [
@@ -83,10 +96,8 @@ class FloatingPandaGripper(BaseAgent):
             pd_joint_delta_pos=dict(
                 root=arm_pd_joint_delta_pos, gripper=gripper_pd_joint_pos
             ),
-            pd_ee_pose=dict(root=pd_ee_pose, gripper_pd_joint_pos=gripper_pd_joint_pos),
-            pd_ee_pose_quat=dict(
-                root=pd_ee_pose_quat, gripper_pd_joint_pos=gripper_pd_joint_pos
-            ),
+            pd_ee_pose=dict(root=pd_ee_pose, gripper=gripper_pd_joint_pos),
+            pd_ee_pose_quat=dict(root=pd_ee_pose_quat, gripper=gripper_pd_joint_pos),
         )
 
     @property
@@ -94,4 +105,18 @@ class FloatingPandaGripper(BaseAgent):
         return []
 
     def _after_init(self):
-        pass
+        self.finger1_link = sapien_utils.get_obj_by_name(
+            self.robot.get_links(), "panda_leftfinger"
+        )
+        self.finger2_link = sapien_utils.get_obj_by_name(
+            self.robot.get_links(), "panda_rightfinger"
+        )
+        self.finger1pad_link = sapien_utils.get_obj_by_name(
+            self.robot.get_links(), "panda_leftfinger_pad"
+        )
+        self.finger2pad_link = sapien_utils.get_obj_by_name(
+            self.robot.get_links(), "panda_rightfinger_pad"
+        )
+        self.tcp = sapien_utils.get_obj_by_name(
+            self.robot.get_links(), self.ee_link_name
+        )

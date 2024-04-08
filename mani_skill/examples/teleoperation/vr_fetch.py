@@ -11,6 +11,7 @@ from mani_skill.examples.teleoperation.vr import MetaQuest3SimTeleopWrapper
 from transforms3d import euler
 MOBILE_SPEED = 0.25
 
+# control mobile + EE same time
 def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
     ### 1. Calibrate human into the scene and robot
     vr.reset()
@@ -76,6 +77,7 @@ def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
         action = env.agent.controller.from_action_dict(action_dict)
         env.step(action)
 
+# control mobile and EE separately
 def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
     ### 1. Calibrate human into the scene and robot
     vr.reset()

@@ -207,9 +207,11 @@ class ReplicaCADSceneBuilder(SceneBuilder):
         elif self.env.robot_uids == "floating_panda_gripper":
             agent: FloatingPandaGripper = self.env.agent
             qpos = agent.robot.get_qpos().clone()
-            qpos[:, 2] = 1
+            qpos[:, 2] = 1.5
             qpos[:, 0] = -0.8
             qpos[:, 1] = -1
+            qpos[:, 4] = torch.pi
+            agent.robot.set_qpos(qpos)
             agent.robot.set_pose(sapien.Pose([0, 0, 0]))
         else:
             pass
