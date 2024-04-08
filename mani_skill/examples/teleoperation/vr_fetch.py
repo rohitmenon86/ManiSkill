@@ -1,3 +1,4 @@
+import copy
 import gymnasium as gym
 import numpy as np
 import sapien
@@ -93,11 +94,9 @@ def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
 
     ### 2. Collect demonstration
     mode = "mobile" # ["mobile", "calibrate_ee", "ee"]
-    last_target_tcp_pose = env.unwrapped.agent.tcp.pose.sp
-    last_base_qpos = common.to_numpy(vr.base_env.agent.robot.qpos[0, :3])
-    target_tcp_pos_rel_to_robot = last_target_tcp_pose.p[:2] - last_base_qpos[:2]
-    target_tcp_rot_rel_to_robot = np.arctan2(target_tcp_pos_rel_to_robot[0], target_tcp_pos_rel_to_robot[1])
     gripper_action = 1
+    # TODO (stao): replace (5, 7, 8, 9, 10, 11, 12) with something like get joint indicies... of arm names
+    last_arm_joint_pos = common.to_numpy(vr.base_env.agent.robot.qpos[0, (5, 7, 8, 9, 10, 11, 12)])
     while True:
         vr_xy = common.to_numpy(vr.base_env.agent.robot.qpos[0, :2])
         vr.root_pose = init_vr_root_pose * sapien.Pose(p=[vr_xy[0], vr_xy[1], 0])
@@ -112,7 +111,6 @@ def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
         # TODO (stao): what is the axis int argument for? seems to only work when i set it to 0
         joystick_xy = vr.vr_display.get_controller_axis_state(2, 0)
 
-        action = env.action_space.sample() * 0
 
         if user_action == "quit":
             return "quit"
@@ -131,11 +129,11 @@ def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
                 mode = "ee"
             elif mode == "ee":
                 mode = "mobile"
-                last_target_tcp_pose = env.unwrapped.agent.tcp.pose.sp
-                last_base_qpos = common.to_numpy(vr.base_env.agent.robot.qpos[0, :3])
-                target_tcp_pos_rel_to_robot = last_target_tcp_pose.p[:2] - last_base_qpos[:2]
-                target_tcp_rot_rel_to_robot = np.arctan2(target_tcp_pos_rel_to_robot[0], target_tcp_pos_rel_to_robot[1])
+                last_arm_joint_pos = common.to_numpy(vr.base_env.agent.robot.qpos[0, (5, 7, 8, 9, 10, 11, 12)])
             print("switch to mode", mode)
+
+
+        action = env.action_space.sample() * 0
         action[-1] = gripper_action
 
         base_action = np.zeros([3])
@@ -150,44 +148,62 @@ def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
             # generate the target tcp pose
             q = (rp * sapien.Pose(q=euler.euler2quat(0, np.pi/2, 0))).q
             target_tcp_pose = sapien.Pose(p=rp.p, q=q)
-            last_target_tcp_pose = target_tcp_pose
+            ee_action = np.zeros(7)
+            ee_action[:3] = target_tcp_pose.p
+            ee_action[3:7] = target_tcp_pose.q
+        # if mode == "mobile":
+        #     # maintain the correct ee-action so that when the robot is doing navigation the arm pose is relatively the same
+        #     # note an alternative way to do this is to force the torso + arm joints to not change values, just need to mark it during trajectory data collection
 
-        ee_action = np.zeros(7)
+        #     # method 1: actually try to get the new ee-pose here.
+        #     robot_base_qpos = common.to_numpy(vr.base_env.agent.robot.qpos[0, :3])
+        #     rot_diff = target_tcp_pos_rel_to_robot
+        #     target_tcp_pos_rel_to_robot_dist = np.linalg.norm(target_tcp_pos_rel_to_robot)
+        #     robot_base_rot_angle = robot_base_qpos[2]
+        #     if robot_base_rot_angle < 0:
+        #         robot_base_rot_angle += 2 * np.pi
+        #     robot_base_rot_angle += (target_tcp_rot_rel_to_robot - np.pi/2)
+        #     rot_diff[0] = np.cos(robot_base_rot_angle) * target_tcp_pos_rel_to_robot_dist
+        #     rot_diff[1] = np.sin(robot_base_rot_angle) * target_tcp_pos_rel_to_robot_dist
+        #     # ee_action[:2] = robot_base_qpos[:2] + rot_diff
 
+        #     new_q = (sapien.Pose(q=last_target_tcp_pose.q) * sapien.Pose(q=euler.euler2quat(-robot_base_rot_angle, 0, 0))).q
+        #     ee_action[3:7] = new_q
 
-        ee_action[:3] = last_target_tcp_pose.p
-        ee_action[3:7] = last_target_tcp_pose.q
-        if mode == "mobile":
-            # maintain the correct ee-action so that when the robot is doing navigation the arm pose is relatively the same
-            # note an alternative way to do this is to force the torso + arm joints to not change values, just need to mark it during trajectory data collection
+        #     # last_target_tcp_pose * robot base pose.inv()
+        #     # robot_base_pose = sapien.Pose(p=[robot_base_qpos[0], robot_base_qpos[1], 0], q=euler.euler2quat(robot_base_rot_angle, 0, 0))
 
-            # method 1: actually try to get the new ee-pose here.
-            # robot_base_qpos = common.to_numpy(vr.base_env.agent.robot.qpos[0, :3])
-            # rot_diff = target_tcp_pos_rel_to_robot
-            # target_tcp_pos_rel_to_robot_dist = np.linalg.norm(target_tcp_pos_rel_to_robot)
-            # robot_base_rot_angle = robot_base_qpos[2]
-            # if robot_base_rot_angle < 0:
-            #     robot_base_rot_angle += 2 * np.pi
-            # robot_base_rot_angle += (target_tcp_rot_rel_to_robot - np.pi/2)
-            # rot_diff[0] = np.cos(robot_base_rot_angle) * target_tcp_pos_rel_to_robot_dist
-            # rot_diff[1] = np.sin(robot_base_rot_angle) * target_tcp_pos_rel_to_robot_dist
-            # ee_action[:2] = robot_base_qpos[:2] + rot_diff
-            # new_q = (sapien.Pose(q=last_target_tcp_pose.q) * sapien.Pose(q=euler.euler2quat(-robot_base_rot_angle, 0, 0))).q
-            # ee_action[3:7] = new_q
+        #     target_tcp_rel_pose = last_target_tcp_pose * last_base_pose.inv()
+        #     posehere = vr.base_env.agent.robot.link_map["base_link"].pose.sp * target_tcp_rel_pose
+        #     print(posehere, "vs", vr.base_env.agent.tcp.pose.sp)
+        #     # print(robot_base_pose, "vs", vr.base_env.agent.robot.link_map["base_link"].pose.sp)
+        #     # print("predicted", ee_action)
 
-            # method 2: generate a impossible ee-action and joint angles will be fixed
-            ee_action[:3] = 99999
+        #     # method 2: generate a impossible ee-action and joint angles will be fixed. But then there can be drift
+        #     # ee_action[:3] = 99999
+        #     ee_action[3:7] = posehere.q
 
         body_action = np.zeros([3])
-        body_action[2] = 1
+        body_action[2] = 1 # for now fix torso height
+
+        # to do some mobile teleop, we really need to decouple ee control (which can be whole body IK) and mobile navigation
+        # during mobile navigation we need to use a different controller because it is better and more stable to control arm with pd_joint_pos
+        # and it will ensure the EE does not lag behind or shake and drop things.
+        # Storing trajectory data is slightly more complicated because of this, need to TODO (stao): modify record episode wrapper to support storing
+        # multiple control mode data.
         if mode != "calibrate_ee":
-            action_dict = dict(base=base_action, arm=ee_action, body=body_action, gripper=gripper_action)
-            action = env.agent.controller.from_action_dict(action_dict)
-            env.step(action)
+            if mode == "ee":
+                action_dict = dict(base=base_action, arm=ee_action, body=body_action, gripper=gripper_action)
+                action = env.agent.controller.from_action_dict(action_dict)
+                env.step(dict(control_mode="pd_ee_pose_quat", action=action))
+            elif mode == "mobile":
+                action_dict = dict(base=base_action, arm=last_arm_joint_pos, body=body_action, gripper=gripper_action)
+                action = env.agent.controller.from_action_dict(action_dict)
+                env.step(dict(control_mode="pd_joint_pos", action=action))
 
 def main(args):
     env = gym.make(args.env_id, control_mode="pd_ee_pose_quat", robot_uids="fetch", enable_shadow=True, render_mode="rgb_array")
-    env = RecordEpisode(env, save_video=args.save_video, output_dir=args.record_dir, video_fps=60, source_type="meta-quest3-vr", source_desc="collected using the meta quest 3 headset to control the fetch arm and end-effector and the mobile base")
+    # env = RecordEpisode(env, save_video=args.save_video, output_dir=args.record_dir, video_fps=60, source_type="meta-quest3-vr", source_desc="collected using the meta quest 3 headset to control the fetch arm and end-effector and the mobile base")
     # TODO (stao): Support other headset as interfaces in the future
     vr = MetaQuest3SimTeleopWrapper(env)
 

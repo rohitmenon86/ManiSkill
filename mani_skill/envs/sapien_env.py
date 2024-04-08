@@ -808,6 +808,8 @@ class BaseEnv(gym.Env):
                     self.agent.set_control_mode(action["control_mode"])
                     self.agent.controller.reset()
                 action = common.to_tensor(action["action"])
+                if action.shape == self.agent.controller.action_space.shape:
+                    action_is_unbatched = True
             else:
                 assert isinstance(
                     self.agent, MultiAgent
