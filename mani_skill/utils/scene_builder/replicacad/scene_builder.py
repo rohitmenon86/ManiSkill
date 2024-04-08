@@ -14,6 +14,9 @@ import transforms3d
 
 from mani_skill import ASSET_DIR
 from mani_skill.agents.robots.fetch.fetch import FETCH_UNIQUE_COLLISION_BIT, Fetch
+from mani_skill.agents.robots.floating_panda_gripper.floating_panda_gripper import (
+    FloatingPandaGripper,
+)
 from mani_skill.envs.scene import ManiSkillScene
 from mani_skill.utils.scene_builder import SceneBuilder
 from mani_skill.utils.scene_builder.registration import register_scene_builder
@@ -201,9 +204,15 @@ class ReplicaCADSceneBuilder(SceneBuilder):
             # agent.robot.set_qpos(qpos)
 
             agent.robot.set_pose(sapien.Pose([0, 0, 0.001]))
-
+        elif self.env.robot_uids == "floating_panda_gripper":
+            agent: FloatingPandaGripper = self.env.agent
+            qpos = agent.robot.get_qpos().clone()
+            qpos[:, 2] = 1
+            qpos[:, 0] = -0.8
+            qpos[:, 1] = -1
+            agent.robot.set_pose(sapien.Pose([0, 0, 0]))
         else:
-            raise NotImplementedError(self.env.robot_uids)
+            pass
         for obj, pose in self.default_object_poses:
             obj.set_pose(pose)
             if isinstance(obj, Articulation):

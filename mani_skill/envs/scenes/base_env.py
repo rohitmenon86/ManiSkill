@@ -34,7 +34,7 @@ class SceneManipulationEnv(BaseEnv):
         convex_decomposition: Choice of convex decomposition algorithm to generate collision meshes for objects. Default is `coacd` which uses https://github.com/SarahWeiii/CoACD
     """
 
-    SUPPORTED_ROBOTS = ["panda", "fetch"]
+    SUPPORTED_ROBOTS = ["panda", "fetch", "floating_panda_gripper"]
     agent: Union[Panda, Fetch]
 
     def __init__(
