@@ -137,7 +137,6 @@ def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
                 last_body_action = common.to_numpy(vr.base_env.agent.robot.qpos[0, (3)])
             print("switch to mode", mode)
 
-        print(common.to_numpy(vr.base_env.agent.robot.qpos[0, (3)]), last_body_action)
         if mode != "calibrate_ee":
             if mode == "ee":
                 # generate the target tcp pose
