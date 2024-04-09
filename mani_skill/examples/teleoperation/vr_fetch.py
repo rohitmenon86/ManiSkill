@@ -104,9 +104,12 @@ def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
     gripper_action = 1
     # TODO (stao): replace (5, 7, 8, 9, 10, 11, 12) with something like get joint indicies... of arm names
     last_arm_joint_pos = common.to_numpy(vr.base_env.agent.robot.qpos[0, (5, 7, 8, 9, 10, 11, 12)])
+    last_body_action = common.to_numpy(vr.base_env.agent.robot.qpos[0, (3)])
     while True:
         vr_xy = common.to_numpy(vr.base_env.agent.robot.qpos[0, :2])
-        vr.root_pose = init_vr_root_pose * sapien.Pose(p=[vr_xy[0], vr_xy[1], 0])
+        new_root_pose = init_vr_root_pose * sapien.Pose(p=[vr_xy[0], vr_xy[1], 0])
+        new_root_pose.set_q(euler.euler2quat(0, 0, vr.base_env.agent.robot.qpos[0, 2]))
+        vr.root_pose = new_root_pose
 
         user_action = vr.get_user_action()
         for obj in vr.base_env._hidden_objects:
@@ -131,26 +134,14 @@ def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
             elif mode == "ee":
                 mode = "mobile"
                 last_arm_joint_pos = common.to_numpy(vr.base_env.agent.robot.qpos[0, (5, 7, 8, 9, 10, 11, 12)])
+                last_body_action = common.to_numpy(vr.base_env.agent.robot.qpos[0, (3)])
             print("switch to mode", mode)
 
-
-        action = env.action_space.sample() * 0
-        action[-1] = gripper_action
-        base_action = np.zeros([3])
-        body_action = np.zeros([3])
-        body_action[2] = 1 # for now fix torso height
-
-        # to do some mobile teleop, we really need to decouple ee control (which can be whole body IK) and mobile navigation
-        # during mobile navigation we need to use a different controller because it is better and more stable to control arm with pd_joint_pos
-        # and it will ensure the EE does not lag behind or shake and drop things.
-        # Storing trajectory data is slightly more complicated because of this, need to TODO (stao): modify record episode wrapper to support storing
-        # multiple control mode data.
+        print(common.to_numpy(vr.base_env.agent.robot.qpos[0, (3)]), last_body_action)
         if mode != "calibrate_ee":
             if mode == "ee":
                 # generate the target tcp pose
                 rp = vr.root_pose * vr.controller_right_poses
-
-
                 q = (rp * sapien.Pose(q=euler.euler2quat(0, np.pi/2, 0))).q
                 target_tcp_pose = sapien.Pose(p=rp.p, q=q)
                 ee_action = np.zeros(7)
@@ -167,12 +158,18 @@ def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
                 action = env.agent.controllers["pd_ee_pose_quat_whole_body"].from_action_dict(action_dict)
                 env.step(dict(control_mode="pd_ee_pose_quat_whole_body", action=action))
             elif mode == "mobile":
+                base_action = np.zeros([3])
+                body_action = np.zeros([3])
+                body_action[1] = 0
+                body_action[2] = last_body_action # for now fix torso height
+
                 # TODO (stao): what is the axis int argument for? seems to only work when i set it to 0
                 joystick_xy = vr.vr_display.get_controller_axis_state(2, 0)
                 base_action[0] = joystick_xy[1] * MOBILE_SPEED
-                base_action[2] = -joystick_xy[0] * MOBILE_SPEED * 0.75
+                base_action[2] = -joystick_xy[0] * MOBILE_SPEED * 0.35
                 action_dict = dict(base=base_action, arm=last_arm_joint_pos, body=body_action, gripper=gripper_action)
                 action = env.agent.controllers["pd_joint_pos"].from_action_dict(action_dict)
+                print(action)
                 env.step(dict(control_mode="pd_joint_pos", action=action))
 
 def main(args):

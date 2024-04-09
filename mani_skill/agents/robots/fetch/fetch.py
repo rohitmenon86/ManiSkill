@@ -292,6 +292,7 @@ class Fetch(BaseAgent):
             self.body_damping,
             self.body_force_limit,
             use_delta=False,
+            normalize_action=False,
         )
 
         # -------------------------------------------------------------------------- #
@@ -315,7 +316,7 @@ class Fetch(BaseAgent):
             pd_joint_pos=dict(
                 arm=arm_pd_joint_pos,
                 gripper=gripper_pd_joint_pos,
-                body=body_pd_joint_delta_pos,
+                body=body_pd_joint_pos,
                 base=base_pd_joint_vel,
             ),
             pd_ee_delta_pos=dict(
