@@ -98,7 +98,7 @@ def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
     init_vr_root_pose = sapien.Pose(-offset_poses[1].p + env.unwrapped.agent.tcp.pose.sp.p) * sapien.Pose(p=[-vr_xy[0], -vr_xy[1], 0])
     vr.root_pose = init_vr_root_pose
     vr_xy = init_vr_root_pose.p[:2].copy()
-
+    head_pose = vr.head_pose
     ### 2. Collect demonstration
     mode = "mobile" # ["mobile", "calibrate_ee", "ee"]
     gripper_action = 1
@@ -106,10 +106,13 @@ def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
     last_arm_joint_pos = common.to_numpy(vr.base_env.agent.robot.qpos[0, (5, 7, 8, 9, 10, 11, 12)])
     last_body_action = common.to_numpy(vr.base_env.agent.robot.qpos[0, (3)])
     while True:
-        vr_xy = common.to_numpy(vr.base_env.agent.robot.qpos[0, :2])
-        new_root_pose = init_vr_root_pose * sapien.Pose(p=[vr_xy[0], vr_xy[1], 0])
-        new_root_pose.set_q(euler.euler2quat(0, 0, vr.base_env.agent.robot.qpos[0, 2]))
-        vr.root_pose = new_root_pose
+        if mode == "mobile":
+            vr_xy = common.to_numpy(vr.base_env.agent.robot.link_map["base_link"].pose.sp.p[:2])
+            new_root_pose = sapien.Pose(p=[vr_xy[0], vr_xy[1], 0])
+            new_root_pose.set_q(euler.euler2quat(0, 0, vr.base_env.agent.robot.qpos[0, 2]))
+            vr.root_pose = new_root_pose
+
+
 
         user_action = vr.get_user_action()
         for obj in vr.base_env._hidden_objects:
@@ -135,6 +138,8 @@ def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
                 mode = "mobile"
                 last_arm_joint_pos = common.to_numpy(vr.base_env.agent.robot.qpos[0, (5, 7, 8, 9, 10, 11, 12)])
                 last_body_action = common.to_numpy(vr.base_env.agent.robot.qpos[0, (3)])
+                # head_pose = copy.deepcopy(vr.head_pose)
+                # vr.head_pose=vr.root_pose
             print("switch to mode", mode)
 
         if mode != "calibrate_ee":
@@ -168,7 +173,6 @@ def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
                 base_action[2] = -joystick_xy[0] * MOBILE_SPEED * 0.35
                 action_dict = dict(base=base_action, arm=last_arm_joint_pos, body=body_action, gripper=gripper_action)
                 action = env.agent.controllers["pd_joint_pos"].from_action_dict(action_dict)
-                print(action)
                 env.step(dict(control_mode="pd_joint_pos", action=action))
 
 def main(args):

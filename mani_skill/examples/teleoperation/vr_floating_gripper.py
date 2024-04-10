@@ -32,16 +32,24 @@ def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
     vr.root_pose = init_vr_root_pose
     vr_xy = init_vr_root_pose.p[:2].copy()
 
+    mode = "mobile"
+
     ### 2. Collect demonstration
     gripper_action = 1
     while True:
         joystick_xy = vr.vr_display.get_controller_axis_state(2, 0)
-        if abs(joystick_xy[1]) > abs(joystick_xy[0]):
-            vr_xy[0] += joystick_xy[1] * MOBILE_SPEED
-        else:
-            vr_xy[1] += joystick_xy[0] * MOBILE_SPEED
-        vr.root_pose = sapien.Pose(p=[vr_xy[0], vr_xy[1], vr.root_pose.p[2]], q=vr.root_pose.q)
 
+        # mobile control by going forward/backward in direction player faces
+        dx, dy, dz = euler.quat2euler(vr.head_pose.q)
+        # if abs(joystick_xy[1]) > abs(joystick_xy[0]):
+            # vr_xy[0] += joystick_xy[1] * MOBILE_SPEED
+        # else:
+        #     vr_xy[1] += joystick_xy[0] * MOBILE_SPEED
+        joystick_d = joystick_xy[1] * MOBILE_SPEED
+        vr_xy[0] += np.cos(dz) * joystick_d
+        vr_xy[1] += np.sin(dz) * joystick_d
+
+        vr.root_pose = sapien.Pose(p=[vr_xy[0], vr_xy[1], 0], q=vr.root_pose.q)
 
         user_action = vr.get_user_action()
         for obj in vr.base_env._hidden_objects:
@@ -56,11 +64,16 @@ def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
             gripper_action = gripper_action * -1
             while vr.get_user_action() is not None:
                 vr.render()
-        # elif user_action == "trigger_2":
-        #     vr_xy = env.unwrapped.agent.tcp.pose.sp.p[:2]
-        #     vr.root_pose = sapien.Pose(p=[vr_xy[0], vr_xy[1], vr.root_pose.p[2]], q=vr.root_pose.q)
-        #     while vr.get_user_action() is not None:
-        #         vr.render()
+        elif user_action == "trigger_2":
+            while vr.get_user_action() is not None:
+                vr.render()
+            if mode == "mobile":
+                mode = "calibrate_ee"
+            elif mode == "calibrate_ee":
+                mode = "ee"
+            elif mode == "ee":
+                mode = "mobile"
+            print("switch to mode", mode)
         action = env.action_space.sample() * 0
         action[-1] = gripper_action
 
@@ -78,7 +91,7 @@ def collect_episode(env: gym.Env, vr: MetaQuest3SimTeleopWrapper):
         env.step(action)
 
 def main(args):
-    env = gym.make(args.env_id, control_mode="pd_ee_pose_quat", robot_uids="floating_panda_gripper", enable_shadow=True, render_mode="rgb_array")
+    env = gym.make(args.env_id, control_mode="pd_ee_pose_quat", robot_uids="floating_panda_gripper", enable_shadow=True, render_mode="rgb_array",)
     # env = RecordEpisode(env, save_video=args.save_video, output_dir=args.record_dir, video_fps=60, source_type="meta-quest3-vr", source_desc="collected using the meta quest 3 headset to control the fetch arm and end-effector and the mobile base")
     # TODO (stao): Support other headset as interfaces in the future
     vr = MetaQuest3SimTeleopWrapper(env)
