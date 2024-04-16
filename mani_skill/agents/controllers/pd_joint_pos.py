@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from gymnasium import spaces
 
-from mani_skill.utils import sapien_utils
+from mani_skill.utils import common
 from mani_skill.utils.structs.types import Array, DriveMode
 
 from .base_controller import BaseController, ControllerConfig
@@ -17,7 +17,9 @@ class PDJointPosController(BaseController):
     _target_qpos = None
 
     def _get_joint_limits(self):
-        qlimits = self.articulation.get_qlimits()[0, self.joint_indices].cpu().numpy()
+        qlimits = (
+            self.articulation.get_qlimits()[0, self.active_joint_indices].cpu().numpy()
+        )
         # Override if specified
         if self.config.lower is not None:
             qlimits[:, 0] = self.config.lower
@@ -65,12 +67,12 @@ class PDJointPosController(BaseController):
 
     def set_drive_targets(self, targets):
         self.articulation.set_joint_drive_targets(
-            targets, self.joints, self.joint_indices
+            targets, self.joints, self.active_joint_indices
         )
 
     def set_action(self, action: Array):
         action = self._preprocess_action(action)
-        action = sapien_utils.to_tensor(action)
+        action = common.to_tensor(action)
         self._step = 0
         self._start_qpos = self.qpos
         if self.config.use_delta:

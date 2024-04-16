@@ -8,7 +8,7 @@ import numpy as np
 import sapien.physx as physx
 import torch
 
-from mani_skill.utils import sapien_utils
+from mani_skill.utils import common
 from mani_skill.utils.structs.base import BaseStruct
 from mani_skill.utils.structs.decorators import before_gpu_init
 from mani_skill.utils.structs.link import Link
@@ -45,7 +45,7 @@ class ArticulationJoint(BaseStruct[physx.PhysxArticulationJoint]):
         physx_joints: List[physx.PhysxArticulationJoint],
         articulation: Articulation,
         joint_index: int,
-        active_joint_index: int,
+        active_joint_index: int = None,
     ):
         # naming convention of the original physx joints is "scene-<id>-<articulation_name>_<original_joint_name>"
         shared_name = "_".join(
@@ -194,7 +194,7 @@ class ArticulationJoint(BaseStruct[physx.PhysxArticulationJoint]):
     @drive_target.setter
     def drive_target(self, arg1: Array) -> None:
         if physx.is_gpu_enabled():
-            arg1 = sapien_utils.to_tensor(arg1)
+            arg1 = common.to_tensor(arg1)
             raise NotImplementedError(
                 "Setting drive targets of individual joints is not implemented yet."
             )
@@ -217,7 +217,7 @@ class ArticulationJoint(BaseStruct[physx.PhysxArticulationJoint]):
     @drive_velocity_target.setter
     def drive_velocity_target(self, arg1: Array) -> None:
         if physx.is_gpu_enabled():
-            arg1 = sapien_utils.to_tensor(arg1)
+            arg1 = common.to_tensor(arg1)
             raise NotImplementedError(
                 "Cannot set drive velocity targets at the moment in GPU simulation"
             )
