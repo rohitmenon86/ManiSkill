@@ -9,7 +9,7 @@ from .planner import (
 
 import mani_skill.envs.utils.randomization as randomization
 from mani_skill.utils.registration import register_env
-from mani_skill.utils.structs.pose import Pose
+from mani_skill.utils.structs import Pose
 from mani_skill.utils.geometry.rotation_conversions import quaternion_raw_multiply
 import sapien
 import sapien.physx as physx

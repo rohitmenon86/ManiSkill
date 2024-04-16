@@ -13,8 +13,8 @@ from mani_skill.sensors.camera import CameraConfig
 from mani_skill.utils.building.actors import build_sphere
 from mani_skill.utils.registration import register_env
 from mani_skill.utils import sapien_utils
-from mani_skill.utils.structs.actor import Actor
-from mani_skill.utils.structs.pose import Pose, vectorize_pose
+from mani_skill.utils.structs import Actor, Pose
+from mani_skill.utils.structs.pose import vectorize_pose
 from mani_skill.utils.structs.types import Array, GPUMemoryConfig, SimConfig
 from mani_skill.utils.visualization.misc import observations_to_images, tile_images
 

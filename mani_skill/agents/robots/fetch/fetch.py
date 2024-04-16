@@ -12,9 +12,7 @@ from mani_skill.agents.controllers import *
 from mani_skill.agents.registration import register_agent
 from mani_skill.sensors.camera import CameraConfig
 from mani_skill.utils import common, sapien_utils
-from mani_skill.utils.structs import Pose
-from mani_skill.utils.structs.actor import Actor
-from mani_skill.utils.structs.link import Link
+from mani_skill.utils.structs import Pose, Actor, Link
 from mani_skill.utils.structs.types import Array
 
 FETCH_UNIQUE_COLLISION_BIT = 1 << 30
