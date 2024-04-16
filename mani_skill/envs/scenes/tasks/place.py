@@ -109,6 +109,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
 
     def reset(self, *args, **kwargs):
         self.robot_cumulative_force = torch.zeros(self.num_envs, device=self.device)
+        self.obj_cumulative_vels = torch.zeros(self.num_envs, device=self.device)
         return super().reset(*args, **kwargs)
 
     # -------------------------------------------------------------------------------------------------
@@ -392,9 +393,17 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             )
             self.robot_cumulative_force += robot_force
 
+            obj_vels_summed = torch.norm(
+                torch.abs(self.subtask_objs[0].angular_velocity)
+                + torch.abs(self.subtask_objs[0].linear_velocity),
+                dim=1,
+            )
+            self.obj_cumulative_vels += obj_vels_summed
+
             infos.update(
                 robot_force=robot_force,
                 robot_cumulative_force=self.robot_cumulative_force,
+                obj_cumulative_vels=self.obj_cumulative_vels,
             )
 
             return infos
@@ -441,10 +450,7 @@ class PlaceSequentialTaskEnv(SequentialTaskEnv):
             reward += ee_still_rew
 
             # penalty for object moving too much
-            obj_vel = torch.norm(
-                self.subtask_objs[0].linear_velocity, dim=1
-            ) + torch.norm(self.subtask_objs[0].angular_velocity, dim=1)
-            obj_still_rew = 3 * (1 - torch.tanh(obj_vel / 5))
+            obj_still_rew = 3 * (1 - torch.tanh(info["obj_cumulative_vels"] / 5))
             reward += obj_still_rew
 
             # success reward
