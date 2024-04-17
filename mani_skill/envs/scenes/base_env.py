@@ -1,4 +1,4 @@
-from typing import Any, Dict, Union
+from typing import Any, Dict, Union, List
 
 import numpy as np
 import torch
@@ -51,7 +51,7 @@ class SceneManipulationEnv(BaseEnv):
     ):
         self.robot_init_qpos_noise = robot_init_qpos_noise
         self.fixed_scene = fixed_scene
-        self.sampled_scene_idx: int = None
+        self.sampled_scene_idxs: List[int] = None
         if isinstance(scene_builder_cls, str):
             scene_builder_cls = REGISTERED_SCENE_BUILDERS[
                 scene_builder_cls
@@ -88,13 +88,15 @@ class SceneManipulationEnv(BaseEnv):
         if not self.fixed_scene:
             options["reconfigure"] = True
         if "reconfigure" in options and options["reconfigure"]:
-            if "scene_idx" in options and isinstance(options["scene_idx"], int):
-                self.sampled_scene_idx = options["scene_idx"]
-            else:
-                self.sampled_scene_idx = self.scene_idxs[
-                    self._episode_rng.randint(0, len(self.scene_idxs))
-                ]
-                self.sampled_scene_idx = int(self.sampled_scene_idx)
+            self.sampled_scene_idxs = options.pop(
+                "scene_idxs",
+                [
+                    self.scene_idxs[idx]
+                    for idx in self._episode_rng.randint(
+                        0, len(self.scene_idxs), size=self.num_envs
+                    )
+                ],
+            )
         return super().reset(seed, options)
 
     def _load_lighting(self, options: dict):
@@ -105,7 +107,7 @@ class SceneManipulationEnv(BaseEnv):
     def _load_scene(self, options: dict):
         self.scene_builder.build(
             self._scene,
-            scene_idx=self.sampled_scene_idx,
+            scene_idxs=self.sampled_scene_idxs,
             convex_decomposition=self.convex_decomposition,
         )
 

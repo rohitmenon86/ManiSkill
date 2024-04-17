@@ -68,53 +68,66 @@ class ReplicaCADRearrangeSceneBuilder(ReplicaCADSceneBuilder):
                 if f.endswith(".json")
             ]
 
-    def build(self, scene: ManiSkillScene, scene_idx=0, **kwargs):
-        with open(
-            osp.join(
-                ASSET_DIR,
-                "scene_datasets/replica_cad_dataset/rearrange/v1_extracted",
-                self._rearrange_scene_configs[scene_idx],
-            ),
-            "rb",
-        ) as f:
-            episode_json = json.load(f)
+    def build(self, scene: ManiSkillScene, scene_idxs=0, **kwargs):
+        if isinstance(scene_idxs, int):
+            scene_idxs = [scene_idxs] * self.env.num_envs
+        assert len(scene_idxs) == self.env.num_envs
 
-        self._rearrange_base_scene_config = Path(episode_json["scene_id"]).name
+        sc_to_episode_json = dict()
+        for sc in np.unique(scene_idxs):
+            with open(
+                osp.join(
+                    ASSET_DIR,
+                    "scene_datasets/replica_cad_dataset/rearrange/v1_extracted",
+                    self._rearrange_scene_configs[sc],
+                ),
+                "rb",
+            ) as f:
+                episode_json = json.load(f)
+            sc_to_episode_json[sc] = episode_json
 
         super().build(
             scene,
-            scene_idx=self._config_to_idx[self._rearrange_base_scene_config],
+            scene_idxs=[
+                self._config_to_idx[Path(sc_to_episode_json[sc]["scene_id"]).name]
+                for sc in scene_idxs
+            ],
         )
 
-        q = transforms3d.quaternions.axangle2quat(
-            np.array([1, 0, 0]), theta=np.deg2rad(90)
-        )
+        for sc in np.unique(scene_idxs):
+            env_idx = [i for i, v in enumerate(scene_idxs) if v == sc]
+            unique_id = "scs-" + str(env_idx).replace(" ", "")
 
-        for i, (actor_id, transformation) in enumerate(episode_json["rigid_objs"]):
-            actor_id = actor_id.split(".")[0]
-            actor_name = f"{actor_id}-{i}"
-            builder, _ = build_actor_ycb(
-                actor_id, scene, name=actor_name, return_builder=True
+            q = transforms3d.quaternions.axangle2quat(
+                np.array([1, 0, 0]), theta=np.deg2rad(90)
             )
+            episode_json = sc_to_episode_json[sc]
 
-            pose = sapien.Pose(q=q, p=[0, 0, 0.01]) * sapien.Pose(matrix=transformation)
-            temp_pose = sapien.Pose(q=pose.q) * sapien.Pose(q=q).inv()
-            pose.q = temp_pose.q
+            for i, (actor_id, transformation) in enumerate(episode_json["rigid_objs"]):
+                actor_id = actor_id.split(".")[0]
+                actor_name = f"{actor_id}-{i}"
+                builder, _ = build_actor_ycb(
+                    actor_id,
+                    scene,
+                    name=f"{unique_id}_{actor_name}",
+                    return_builder=True,
+                )
 
-            # TODO (arth): return builder option from scene builder and handle static/not in seq task
-            actor = builder.build(name=actor_name)
-            self._default_object_poses.append((actor, pose))
-            self._movable_objects[actor_name] = actor
+                pose = sapien.Pose(q=q, p=[0, 0, 0.01]) * sapien.Pose(
+                    matrix=transformation
+                )
+                temp_pose = sapien.Pose(q=pose.q) * sapien.Pose(q=q).inv()
+                pose.q = temp_pose.q
 
-            self._scene_objects[actor_name] = actor
+                # TODO (arth): return builder option from scene builder and handle static/not in seq task
+                builder.set_scene_idxs(env_idx)
+                actor = builder.build(name=f"{unique_id}_{actor_name}")
+                self._default_object_poses.append((actor, pose))
+
+                for i in env_idx:
+                    self._movable_objects[f"env-{i}_{actor_name}"] = actor
+                    self._scene_objects[f"env-{i}_{actor_name}"] = actor
 
     @property
     def scene_configs(self):
         return self._rearrange_scene_configs
-
-    @property
-    def navigable_positions(self) -> np.ndarray:
-        assert isinstance(
-            self._scene_idx, int
-        ), "Must build scene before getting navigable positions"
-        return self._navigable_positions[self._rearrange_base_scene_config]
