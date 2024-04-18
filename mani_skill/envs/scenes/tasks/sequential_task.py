@@ -216,8 +216,10 @@ class SequentialTaskEnv(SceneManipulationEnv):
         # TODO (arth): figure out how to change horizon after task inited
         # self.max_episode_steps = torch.sum(self.task_horizons)
 
-    def _get_actor(self, actor_id: str):
-        return self.scene_builder.movable_objects[actor_id]
+    def _get_actor_entity(self, actor_id: str, env_num: int):
+        return self.scene_builder.movable_objects[actor_id]._objs[
+            self.scene_builder.obj_to_env_idx[actor_id].index(env_num)
+        ]
 
     def _create_merged_actor_from_subtasks(
         self,
@@ -226,7 +228,7 @@ class SequentialTaskEnv(SceneManipulationEnv):
     ):
         merged_obj = Actor.create_from_entities(
             [
-                self._get_actor(subtask.obj_id)._objs[i]
+                self._get_actor_entity(actor_id=f"env-{i}_{subtask.obj_id}", env_num=i)
                 for i, subtask in enumerate(parallel_subtasks)
             ],
             scene=self._scene,

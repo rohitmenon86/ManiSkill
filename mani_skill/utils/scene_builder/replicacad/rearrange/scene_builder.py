@@ -127,6 +127,7 @@ class ReplicaCADRearrangeSceneBuilder(ReplicaCADSceneBuilder):
                 for i in env_idx:
                     self._movable_objects[f"env-{i}_{actor_name}"] = actor
                     self._scene_objects[f"env-{i}_{actor_name}"] = actor
+                    self._obj_to_env_idx[f"env-{i}_{actor_name}"] = env_idx
 
     @property
     def scene_configs(self):

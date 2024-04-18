@@ -111,10 +111,12 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
     # TODO (arth): maybe check that obj won't fall when noise is added
     # vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 
-    def _get_navigable_spawn_positions_with_rots_and_dists(self, center_x, center_y):
+    def _get_navigable_spawn_positions_with_rots_and_dists(
+        self, navigable_positions, center_x, center_y
+    ):
         # NOTE (arth): this is all unbatched, should be called wtih DEFAULT obj spawn pos
         center = torch.tensor([center_x, center_y])
-        pts = torch.tensor(self.scene_builder.navigable_positions)
+        pts = torch.tensor(navigable_positions)
         pts_wrt_center = pts - center
 
         dists = torch.norm(pts_wrt_center, dim=1)
@@ -159,12 +161,13 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
             # NOTE (arth): targ obj should be same merged actor
             obj = self.subtask_objs[0]
 
+            navigable_positions = self.scene_builder.navigable_positions
             spawn_loc_rots = []
             spawn_dists = []
             for env_idx in range(self.num_envs):
                 center = obj.pose.p[env_idx, :2]
                 slr, dists = self._get_navigable_spawn_positions_with_rots_and_dists(
-                    center[0], center[1]
+                    navigable_positions[env_idx], center[0], center[1]
                 )
                 spawn_loc_rots.append(slr)
                 spawn_dists.append(dists)

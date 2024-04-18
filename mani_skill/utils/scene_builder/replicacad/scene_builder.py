@@ -69,6 +69,7 @@ class ReplicaCADSceneBuilder(SceneBuilder):
         assert len(scene_idxs) == self.env.num_envs
 
         # Keep track of movable and static objects, scene_idx for envs, and poses
+        self._obj_to_env_idx: Dict[str, List[int]] = dict()
         self._scene_objects: Dict[str, Actor] = dict()
         self._movable_objects: Dict[str, Actor] = dict()
         self._articulations: Dict[str, Articulation] = dict()
@@ -133,7 +134,7 @@ class ReplicaCADSceneBuilder(SceneBuilder):
             builder.set_scene_idxs(env_idx)
             bg = builder.build_static(name=f"{unique_id}_scene_background")
             for i in env_idx:
-                bgs[i] = bg
+                bgs[i] = bg._objs[env_idx.index(i)]
 
             # In scenes, there will always be dynamic objects, kinematic objects, and static objects.
             # In the case of ReplicaCAD there are only dynamic and static objects. Since dynamic objects can be moved during simulation
@@ -194,6 +195,7 @@ class ReplicaCADSceneBuilder(SceneBuilder):
                 # Add dynamic objects to _scene_objects
                 for i in env_idx:
                     self._scene_objects[f"env-{i}_{actor_name}"] = actor
+                    self._obj_to_env_idx[f"env-{i}_{actor_name}"] = env_idx
 
                 # Certain objects, such as mats, rugs, and carpets, are on the ground and should not collide with the Fetch base
                 if np.any([x in actor_name for x in IGNORE_FETCH_COLLISION_STRS]):
@@ -225,6 +227,7 @@ class ReplicaCADSceneBuilder(SceneBuilder):
                 for i in env_idx:
                     self._articulations[f"env-{i}_{articulation.name}"] = articulation
                     self._scene_objects[f"env-{i}_{articulation.name}"] = articulation
+                    self._obj_to_env_idx[f"env-{i}_{articulation.name}"] = env_idx
 
             # ReplicaCAD also specifies where to put lighting
             with open(
@@ -263,7 +266,12 @@ class ReplicaCADSceneBuilder(SceneBuilder):
                     self._navigable_positions[self._scene_configs[sc]] = np.load(npy_fp)
 
         # merge actors into one
-        self.bg = Actor.merge(bgs, name="scene_background")
+        self.bg = Actor.create_from_entities(
+            bgs,
+            scene=scene,
+            scene_idxs=torch.arange(self.env.num_envs, dtype=int),
+            shared_name="scene_background",
+        )
         # For the purposes of physical simulation, we disable collisions between the Fetch robot and the scene background
         self.disable_fetch_move_collisions(self.bg._bodies)
 
@@ -337,13 +345,11 @@ class ReplicaCADSceneBuilder(SceneBuilder):
         return self._scene_configs
 
     @property
-    def navigable_positions(self) -> np.ndarray:
-        return common.to_tensor(
-            [
-                self._navigable_positions[self._scene_configs[sc]]
-                for sc in self._scene_idxs
-            ]
-        )
+    def navigable_positions(self) -> List[np.ndarray]:
+        return [
+            self._navigable_positions[self._scene_configs[sc]]
+            for sc in self._scene_idxs
+        ]
 
     @property
     def default_object_poses(
@@ -352,6 +358,10 @@ class ReplicaCADSceneBuilder(SceneBuilder):
         if self._settled_object_poses is not None:
             return self._settled_object_poses
         return self._default_object_poses
+
+    @property
+    def obj_to_env_idx(self) -> Dict[str, List[int]]:
+        return self._obj_to_env_idx
 
     @property
     def scene_objects(self) -> Dict[str, Actor]:

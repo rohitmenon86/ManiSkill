@@ -47,6 +47,7 @@ class SceneManipulationEnv(BaseEnv):
         scene_builder_cls: Union[str, SceneBuilder] = "ReplicaCAD",
         convex_decomposition="coacd",
         scene_idxs=None,
+        sample_idxs=True,
         **kwargs
     ):
         self.robot_init_qpos_noise = robot_init_qpos_noise
@@ -66,6 +67,7 @@ class SceneManipulationEnv(BaseEnv):
                 0, len(self.scene_builder.scene_configs)
             ).tolist()
         self.convex_decomposition = convex_decomposition
+        self.sample_idxs = sample_idxs
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
     @property
@@ -107,7 +109,9 @@ class SceneManipulationEnv(BaseEnv):
     def _load_scene(self, options: dict):
         self.scene_builder.build(
             self._scene,
-            scene_idxs=self.sampled_scene_idxs,
+            scene_idxs=(
+                self.scene_idxs if not self.sample_idxs else self.sampled_scene_idxs
+            ),
             convex_decomposition=self.convex_decomposition,
         )
 
