@@ -25,13 +25,9 @@ from mani_skill.envs.utils.observations import (
     sensor_data_to_rgbd,
 )
 from mani_skill.sensors.base_sensor import BaseSensor, BaseSensorConfig
-from mani_skill.sensors.camera import (
-    Camera,
-    CameraConfig,
-    parse_camera_cfgs,
-    update_camera_cfgs_from_dict,
-)
-from mani_skill.sensors.depth_camera import StereoDepthCamera, StereoDepthCameraConfig
+from mani_skill.sensors.camera import Camera, CameraConfig, parse_camera_cfgs
+from mani_skill.sensors.common import update_camera_cfgs_from_dict
+from mani_skill.sensors.stereodepth import StereoDepthCamera, StereoDepthCameraConfig
 from mani_skill.utils import common, gym_utils, sapien_utils
 from mani_skill.utils.structs import Actor, Articulation
 from mani_skill.utils.structs.types import Array, SimConfig
@@ -589,12 +585,12 @@ class BaseEnv(gym.Env):
         # Override camera configurations with user supplied configurations
         if self._custom_sensor_configs is not None:
             update_camera_cfgs_from_dict(
-                self._sensor_configs, self._custom_sensor_configs
+                self._sensor_configs, self._custom_sensor_configs.copy()
             )
         if self._custom_human_render_camera_configs is not None:
             update_camera_cfgs_from_dict(
                 self._human_render_camera_configs,
-                self._custom_human_render_camera_configs,
+                self._custom_human_render_camera_configs.copy(),
             )
 
         # Now we instantiate the actual sensor objects
@@ -609,6 +605,7 @@ class BaseEnv(gym.Env):
                 sensor_cls = StereoDepthCamera
             elif isinstance(sensor_cfg, CameraConfig):
                 sensor_cls = Camera
+            print(sensor_cls)
             self._sensors[uid] = sensor_cls(
                 sensor_cfg,
                 self._scene,
@@ -1107,6 +1104,7 @@ class BaseEnv(gym.Env):
         images = []
         self._scene.update_render()
         self.capture_sensor_data()
+        # TODO (stao): use the get_sensor_images API instead and remove this old one.
         sensor_images = self.get_sensor_obs()
         for sensor_images in sensor_images.values():
             images.extend(observations_to_images(sensor_images))
