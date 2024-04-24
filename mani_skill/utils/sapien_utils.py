@@ -3,6 +3,7 @@ Utilities that work with the simulation / SAPIEN
 """
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, TypeVar
 
 import numpy as np
@@ -455,3 +456,20 @@ def check_actor_static(actor: Actor, lin_thresh=1e-3, ang_thresh=1e-2):
         torch.linalg.norm(actor.linear_velocity, axis=1) <= lin_thresh,
         torch.linalg.norm(actor.angular_velocity, axis=1) <= ang_thresh,
     )
+
+
+def set_shader_dir(shader_dir: str, textured: bool = False):
+    if not textured:
+        shader_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "no_textured_light_shader"
+        )
+        if shader_dir == "minimal":
+            sapien.render.set_camera_shader_dir(os.path.join(shader_path, "minimal"))
+        elif shader_dir == "default":
+            sapien.render.set_camera_shader_dir(os.path.join(shader_path, "default"))
+        sapien.render.set_viewer_shader_dir(os.path.join(shader_path, "default"))
+    else:
+        if shader_dir == "minimal":
+            sapien.render.set_camera_shader_dir("minimal")
+        elif shader_dir == "default":
+            sapien.render.set_camera_shader_dir("default")

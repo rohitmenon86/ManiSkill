@@ -535,6 +535,9 @@ class BaseEnv(gym.Env):
         # load everything into the scene first before initializing anything
         self._setup_scene()
         self._load_agent(options)
+
+        # set a non textured minimal shader
+        # sapien_utils.set_shader_dir("minimal", textured=False)
         self._load_scene(options)
 
         self._load_lighting(options)
@@ -605,7 +608,6 @@ class BaseEnv(gym.Env):
                 sensor_cls = StereoDepthCamera
             elif isinstance(sensor_cfg, CameraConfig):
                 sensor_cls = Camera
-            print(sensor_cls)
             self._sensors[uid] = sensor_cls(
                 sensor_cfg,
                 self._scene,

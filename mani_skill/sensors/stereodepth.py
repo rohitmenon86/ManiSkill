@@ -1,6 +1,5 @@
-import os
 from dataclasses import dataclass, field
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 import cv2
 import numpy as np
@@ -13,28 +12,9 @@ from sapien.sensor.simsense_component import SimSenseComponent
 
 from mani_skill.envs.scene import ManiSkillScene
 from mani_skill.sensors.base_sensor import BaseSensor
-from mani_skill.sensors.camera import Camera
-from mani_skill.sensors.camera import CameraConfig
-from mani_skill.sensors.camera import CameraConfig as MSCameraConfig
-from mani_skill.sensors.camera import Pose
+from mani_skill.sensors.camera import Camera, CameraConfig
+from mani_skill.utils.sapien_utils import set_shader_dir
 from mani_skill.utils.structs.articulation import Articulation
-
-
-def set_shader_dir(shader_dir: str, textured: bool = False):
-    if not textured:
-        shader_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "no_textured_light_shader"
-        )
-        if shader_dir == "default":
-            sapien.render.set_camera_shader_dir(os.path.join(shader_path, "minimal"))
-        elif shader_dir == "true_default":
-            sapien.render.set_camera_shader_dir(os.path.join(shader_path, "default"))
-        sapien.render.set_viewer_shader_dir(os.path.join(shader_path, "default"))
-    else:
-        if shader_dir == "default":
-            sapien.render.set_camera_shader_dir("minimal")
-        elif shader_dir == "true_default":
-            sapien.render.set_camera_shader_dir("default")
 
 
 # from blazar.cfg import field
@@ -89,7 +69,7 @@ class StereoDepthCameraConfig(CameraConfig):
         return (self.width, self.height)
 
     stereo_frame: int = 10
-    fov: float | None = 0.749
+    fov: Optional[float] = 0.749
 
     @property
     def rgb_intrinsic(self):
@@ -176,11 +156,13 @@ class StereoDepthCamera(BaseSensor):
         trans_pose_r = sapien.Pose(np.array(cfg.trans_pose_r))
         if cfg.intrinsic is None:
             intrinsic = cfg.rgb_intrinsic
+        else:
+            intrinsic = cfg.intrinsic
         self.ss = SimSenseComponent(
             self.config.rgb_resolution,
             self.config.ir_resolution,
             np.array(intrinsic),
-            np.array(sds_cfg.ir_intrinsic),
+            np.array(intrinsic),
             trans_pose_l,
             trans_pose_r,
             sds_cfg.min_depth,
@@ -220,16 +202,6 @@ class StereoDepthCamera(BaseSensor):
         set_shader_dir("default", textured=True)
 
         sapien.render.set_picture_format("Color", "r32g32b32a32sfloat")
-
-        # _cam_ir_l = self.create_camera_component(
-        #     scene,
-        #     cfg.pose * cfg.trans_pose_l,
-        #     cfg.ir_resolution,
-        #     np.array(cfg.ir_intrinsic),
-        #     full_key + "/cam_ir_l",
-        #     parent,
-        #     texture_names=("Color",),
-        # )
         cam_ir_l_cfg = CameraConfig(
             uid=cfg.uid + "/cam_ir_l",
             pose=cfg.pose * trans_pose_l,
@@ -237,22 +209,12 @@ class StereoDepthCamera(BaseSensor):
             height=cfg.ir_resolution[1],
             near=0.1,
             far=100.0,
-            intrinsic=np.array(cfg.ir_intrinsic),
+            intrinsic=np.array(intrinsic),
             entity_uid=cfg.entity_uid,
             hide_link=cfg.hide_link,
             texture_names=("Color",),
         )
         cam_ir_l = Camera(cam_ir_l_cfg, scene, articulation)
-
-        # _cam_ir_r = self.create_camera_component(
-        #     scene,
-        #     cfg.pose * trans_pose_r,
-        #     cfg.ir_resolution,
-        #     np.array(cfg.ir_intrinsic),
-        #     full_key + "/cam_ir_r",
-        #     parent,
-        #     texture_names=("Color",),
-        # )
         cam_ir_r_cfg = CameraConfig(
             uid=cfg.uid + "/cam_ir_r",
             pose=cfg.pose * trans_pose_r,
@@ -260,7 +222,7 @@ class StereoDepthCamera(BaseSensor):
             height=cfg.ir_resolution[1],
             near=0.1,
             far=100.0,
-            intrinsic=np.array(cfg.ir_intrinsic),
+            intrinsic=np.array(intrinsic),
             entity_uid=cfg.entity_uid,
             hide_link=cfg.hide_link,
             texture_names=("Color",),
@@ -299,7 +261,7 @@ class StereoDepthCamera(BaseSensor):
         self,
         compute_depth: bool = True,
         verbose: bool = False,
-        object_ids: list[tuple[torch.Tensor, int]] | None = None,
+        object_ids: Optional[list[tuple[torch.Tensor, int]]] = None,
         take_cpu_picture: bool = False,
     ):
         """assume already updated the renderer"""
@@ -416,7 +378,6 @@ class StereoDepthCamera(BaseSensor):
 
             position_seg[..., 2] = -depths
         #
-        import matplotlib.pyplot as plt
 
         # import ipdb;ipdb.set_trace()
         # plt.imshow(rgb.cpu().numpy()[0, ..., :3]); plt.show()
