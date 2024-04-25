@@ -38,73 +38,76 @@ IGNORE_FETCH_COLLISION_STRS = ["mat", "rug", "carpet"]
 class ReplicaCADSceneBuilder(SceneBuilder):
     builds_lighting = True  # we set this true because the ReplicaCAD dataset defines some lighting for us so we don't need the default option from ManiSkill
 
-    def __init__(self, env, robot_init_qpos_noise=0.02, include_staging_scenes=False):
-        super().__init__(env, robot_init_qpos_noise)
+    # build configs for RCAD are string file names
+    build_configs: List[str] = None
+
+    def __init__(self, env, include_staging_scenes=False):
+        super().__init__(env)
         # Scene datasets from any source generally have several configurations, each of which may involve changing object geometries, poses etc.
-        # You should store this configuration information in the self._scene_configs list, which permits the code to sample from when
+        # You should store this configuration information in the self.build_configs list, which permits the code to sample from when
         # simulating more than one scene or performing reconfiguration
 
         # for ReplicaCAD we have saved the list of all scene configuration files from the dataset to a local json file
         with open(osp.join(DATASET_CONFIG_DIR, "scene_configs.json")) as f:
-            scene_config_json = json.load(f)
-            self._scene_configs = scene_config_json["scenes"]
+            build_config_json = json.load(f)
+            self.build_configs = build_config_json["scenes"]
             if include_staging_scenes:
-                self._scene_configs += scene_config_json["staging_scenes"]
+                self.build_configs += build_config_json["staging_scenes"]
 
         # cache navigable positions from files
         # assumes navigable position files saved
-        self._navigable_positions = dict((sc, None) for sc in self._scene_configs)
-        self._scene_idxs = None
+        self._navigable_positions = dict((bc, None) for bc in self.build_configs)
+        self.build_config_idxs: List[int] = None
 
+        # TODO (arth): fix this
         # movable objects are often spawned above their desired location
         # to avoid collision issues when initializing a scene.
         # however, some datasets have inexact or inconsistent initial positions
         # for this reason we save cached "settled" object poses to prevent this issue
-        self._settled_object_poses = None
+        self._default_object_poses: List[Tuple[int, sapien.Pose]] = []
+        self._settled_object_poses: List[Tuple[int, sapien.Pose]] = None
 
-    def build(self, scene: ManiSkillScene, scene_idxs=0, **kwargs):
-        # scene_idxs is a list of integers, where the ith value is the scene idx for the ith parallel env
-        if isinstance(scene_idxs, int):
-            scene_idxs = [scene_idxs] * self.env.num_envs
-        assert len(scene_idxs) == self.env.num_envs
+    def build(self, build_config_idxs: Union[int, List[int]]):
+        # build_config_idxs is a list of integers, where the ith value is the scene idx for the ith parallel env
+        if isinstance(build_config_idxs, int):
+            build_config_idxs = [build_config_idxs] * self.env.num_envs
+        assert all([isinstance(bci, int) for bci in build_config_idxs])
+        assert len(build_config_idxs) == self.env.num_envs
 
         # Keep track of movable and static objects, scene_idx for envs, and poses
-        self._obj_to_env_idx: Dict[str, List[int]] = dict()
-        self._scene_objects: Dict[str, Actor] = dict()
-        self._movable_objects: Dict[str, Actor] = dict()
-        self._articulations: Dict[str, Articulation] = dict()
-        self._scene_idxs = scene_idxs
-        self._default_object_poses = []
-        self._settled_object_poses = None
+        self.build_config_idxs = build_config_idxs
+        self.scene_objects: Dict[str, Actor] = dict()
+        self.movable_objects: Dict[str, Actor] = dict()
+        self.articulations: Dict[str, Articulation] = dict()
+        self._default_object_poses: List[Tuple[int, sapien.Pose]] = []
+        self._settled_object_poses: List[Tuple[int, sapien.Pose]] = None
 
         # keep track of background objects separately as we need to disable mobile robot collisions
         # note that we will create a merged actor using these objects to represent the bg
         bgs = [None] * self.env.num_envs
 
-        for sc in np.unique(scene_idxs):
+        for bci in np.unique(build_config_idxs):
             """
-            Given a ManiSkillScene, a sampled scene_idx, build/load the scene objects
+            Given a list of sampled build_config_idxs, build/load the scene objects
 
-            scene_idx is an index corresponding to a sampled scene config in self._scene_configs. The code should...
-            TODO (stao): scene_idx should probably be replaced with scene config?
-
-            TODO (stao): provide a simple way in maybe SceneBuilder to override how to decide if an object should be dynamic or not?
+            TODO (arth): return builder option to set static/dynamic in env
+                -  for now leave as-is since has smaller change in performance
             """
 
-            env_idx = [i for i, v in enumerate(scene_idxs) if v == sc]
+            env_idx = [i for i, v in enumerate(build_config_idxs) if v == bci]
             unique_id = "scs-" + str(env_idx).replace(" ", "")
-            scene_cfg_path = self._scene_configs[sc]
+            build_cfg_path = self.build_configs[bci]
 
             # We read the json config file describing the scene setup for the selected ReplicaCAD scene
             with open(
                 osp.join(
                     ASSET_DIR,
                     "scene_datasets/replica_cad_dataset/configs/scenes",
-                    scene_cfg_path,
+                    build_cfg_path,
                 ),
                 "rb",
             ) as f:
-                scene_json = json.load(f)
+                build_config_json = json.load(f)
 
             # The complex part of porting over scene datasets is that each scene dataset often has it's own format and there is no
             # one size fits all solution to read that format and use it. The best way to port a scene dataset over is to look
@@ -113,13 +116,13 @@ class ReplicaCADSceneBuilder(SceneBuilder):
 
             # ReplicaCAD stores the background model here
             background_template_name = osp.basename(
-                scene_json["stage_instance"]["template_name"]
+                build_config_json["stage_instance"]["template_name"]
             )
             bg_path = str(
                 ASSET_DIR
                 / f"scene_datasets/replica_cad_dataset/stages/{background_template_name}.glb"
             )
-            builder = scene.create_actor_builder()
+            builder = self.scene.create_actor_builder()
             # Note all ReplicaCAD assets are rotated by 90 degrees as they use a different xyz convention to SAPIEN/ManiSkill.
             q = transforms3d.quaternions.axangle2quat(
                 np.array([1, 0, 0]), theta=np.deg2rad(90)
@@ -139,7 +142,7 @@ class ReplicaCADSceneBuilder(SceneBuilder):
             # In scenes, there will always be dynamic objects, kinematic objects, and static objects.
             # In the case of ReplicaCAD there are only dynamic and static objects. Since dynamic objects can be moved during simulation
             # we need to keep track of the initial poses of each dynamic actor we create.
-            for obj_num, obj_meta in enumerate(scene_json["object_instances"]):
+            for obj_num, obj_meta in enumerate(build_config_json["object_instances"]):
 
                 # Again, for any dataset you will have to figure out how they reference object files
                 # Note that ASSET_DIR will always refer to the ~/.ms_data folder or whatever MS_ASSET_DIR is set to
@@ -157,7 +160,7 @@ class ReplicaCADSceneBuilder(SceneBuilder):
                     collision_file = osp.join(
                         osp.dirname(obj_cfg_path), obj_cfg["collision_asset"]
                     )
-                builder = scene.create_actor_builder()
+                builder = self.scene.create_actor_builder()
                 pos = obj_meta["translation"]
                 rot = obj_meta["rotation"]
                 # left multiplying by the offset quaternion we used for the stage/scene background as all assets in ReplicaCAD are rotated by 90 degrees
@@ -182,7 +185,7 @@ class ReplicaCADSceneBuilder(SceneBuilder):
 
                     # Add dynamic objects to _movable_objects
                     for i in env_idx:
-                        self._movable_objects[f"env-{i}_{actor_name}"] = actor
+                        self.movable_objects[f"env-{i}_{actor_name}"] = actor
                 elif obj_meta["motion_type"] == "STATIC":
                     builder.add_visual_from_file(visual_file)
                     # for static (and dynamic) objects you don't need to use pre convex decomposed meshes and instead can directly
@@ -194,16 +197,17 @@ class ReplicaCADSceneBuilder(SceneBuilder):
 
                 # Add dynamic objects to _scene_objects
                 for i in env_idx:
-                    self._scene_objects[f"env-{i}_{actor_name}"] = actor
-                    self._obj_to_env_idx[f"env-{i}_{actor_name}"] = env_idx
+                    self.scene_objects[f"env-{i}_{actor_name}"] = actor
 
                 # Certain objects, such as mats, rugs, and carpets, are on the ground and should not collide with the Fetch base
                 if np.any([x in actor_name for x in IGNORE_FETCH_COLLISION_STRS]):
-                    self.disable_fetch_move_collisions(actor._bodies, and_base=True)
+                    self.disable_fetch_move_collisions(
+                        actor._bodies, disable_base_collisions=True
+                    )
 
             # ReplicaCAD also provides articulated objects
             for i, articulated_meta in enumerate(
-                scene_json["articulated_object_instances"]
+                build_config_json["articulated_object_instances"]
             ):
 
                 template_name = articulated_meta["template_name"]
@@ -213,7 +217,7 @@ class ReplicaCADSceneBuilder(SceneBuilder):
                     ASSET_DIR,
                     f"scene_datasets/replica_cad_dataset/urdf/{template_name}/{template_name}.urdf",
                 )
-                urdf_loader = scene.create_urdf_loader()
+                urdf_loader = self.scene.create_urdf_loader()
                 urdf_loader.name = f"{unique_id}_{template_name}-{i}"
                 urdf_loader.fix_root_link = articulated_meta["fixed_base"]
                 urdf_loader.disable_self_collisions = True
@@ -225,16 +229,15 @@ class ReplicaCADSceneBuilder(SceneBuilder):
 
                 # for now classify articulated objects as "movable" object
                 for i in env_idx:
-                    self._articulations[f"env-{i}_{articulation.name}"] = articulation
-                    self._scene_objects[f"env-{i}_{articulation.name}"] = articulation
-                    self._obj_to_env_idx[f"env-{i}_{articulation.name}"] = env_idx
+                    self.articulations[f"env-{i}_{articulation.name}"] = articulation
+                    self.scene_objects[f"env-{i}_{articulation.name}"] = articulation
 
             # ReplicaCAD also specifies where to put lighting
             with open(
                 osp.join(
                     ASSET_DIR,
                     "scene_datasets/replica_cad_dataset/configs/lighting",
-                    f"{osp.basename(scene_json['default_lighting'])}.lighting_config.json",
+                    f"{osp.basename(build_config_json['default_lighting'])}.lighting_config.json",
                 )
             ) as f:
                 lighting_cfg = json.load(f)
@@ -246,29 +249,29 @@ class ReplicaCADSceneBuilder(SceneBuilder):
                     ).p
                     # In SAPIEN, one can set color to unbounded values, higher just means more intense. ReplicaCAD provides color and intensity separately so
                     # we multiply it together here. We also take absolute value of intensity since some scene configs write negative intensities (which result in black holes)
-                    scene.add_point_light(
+                    self.scene.add_point_light(
                         light_pos_fixed,
                         color=np.array(light_cfg["color"])
                         * np.abs(light_cfg["intensity"]),
                     )
-            scene.set_ambient_light([0.3, 0.3, 0.3])
+            self.scene.set_ambient_light([0.3, 0.3, 0.3])
 
-            if self._navigable_positions[self._scene_configs[sc]] is None:
+            if self._navigable_positions[self.build_configs[bci]] is None:
                 npy_fp = (
                     Path(ASSET_DIR)
                     / "scene_datasets/replica_cad_dataset/configs/scenes"
                     / (
-                        Path(self._scene_configs[sc]).stem
+                        Path(self.build_configs[bci]).stem
                         + f".{str(self.env.robot_uids)}.navigable_positions.npy"
                     )
                 )
                 if npy_fp.exists():
-                    self._navigable_positions[self._scene_configs[sc]] = np.load(npy_fp)
+                    self._navigable_positions[self.build_configs[bci]] = np.load(npy_fp)
 
         # merge actors into one
         self.bg = Actor.create_from_entities(
             bgs,
-            scene=scene,
+            scene=self.scene,
             scene_idxs=torch.arange(self.env.num_envs, dtype=int),
             shared_name="scene_background",
         )
@@ -284,13 +287,18 @@ class ReplicaCADSceneBuilder(SceneBuilder):
 
         else:
             raise NotImplementedError(self.env.robot_uids)
-        for obj, pose in self.default_object_poses:
+        for obj, pose in (
+            self._settled_object_poses
+            if self._settled_object_poses is not None
+            else self._default_object_poses
+        ):
             obj.set_pose(pose)
             if isinstance(obj, Articulation):
                 # note that during initialization you may only ever change poses/qpos of objects in scenes being reset
                 obj.set_qpos(obj.qpos[0] * 0)
 
-        self.settle_objects()
+        # TODO (arth): fix on gpu sim, see how to include Rearrange objects
+        # self.settle_objects()
 
     def settle_objects(self):
 
@@ -331,46 +339,22 @@ class ReplicaCADSceneBuilder(SceneBuilder):
                 pose = actor.pose
             self._settled_object_poses.append((actor, pose))
 
-    def disable_fetch_move_collisions(self, bodies, and_base=False):
+    def disable_fetch_move_collisions(
+        self,
+        bodies: List[physx.PhysxRigidDynamicComponent],
+        disable_base_collisions=False,
+    ):
         for body in bodies:
             for cs in body.get_collision_shapes():
                 cg = cs.get_collision_groups()
                 cg[2] |= FETCH_UNIQUE_COLLISION_BIT
-                if and_base:
+                if disable_base_collisions:
                     cg[2] |= FETCH_BASE_COLLISION_BIT
                 cs.set_collision_groups(cg)
 
     @property
-    def scene_configs(self):
-        return self._scene_configs
-
-    @property
     def navigable_positions(self) -> List[np.ndarray]:
         return [
-            self._navigable_positions[self._scene_configs[sc]]
-            for sc in self._scene_idxs
+            self._navigable_positions[self.build_configs[bci]]
+            for bci in self.build_config_idxs
         ]
-
-    @property
-    def default_object_poses(
-        self,
-    ) -> List[Tuple[Union[Actor, Articulation], Union[Pose, sapien.Pose]]]:
-        if self._settled_object_poses is not None:
-            return self._settled_object_poses
-        return self._default_object_poses
-
-    @property
-    def obj_to_env_idx(self) -> Dict[str, List[int]]:
-        return self._obj_to_env_idx
-
-    @property
-    def scene_objects(self) -> Dict[str, Actor]:
-        return self._scene_objects
-
-    @property
-    def movable_objects(self) -> Dict[str, Actor]:
-        return self._movable_objects
-
-    @property
-    def articulations(self) -> Dict[str, Articulation]:
-        return self._articulations

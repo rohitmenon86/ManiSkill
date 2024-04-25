@@ -54,7 +54,7 @@ if render_mode != "human":
 
 # env.step(np.zeros(env.action_space.shape))
 # while True:
-for _ in range(2):
+for _ in range(1):
     obs, info = env.reset(seed=0)
     for _ in range(10 if render_mode != "human" else int(1e8)):
         # print(

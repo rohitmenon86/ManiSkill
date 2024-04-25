@@ -205,12 +205,16 @@ class AI2THORBaseSceneBuilder(SceneBuilder):
             if npy_fp.exists():
                 self._scene_navigable_positions[scene_idx] = np.load(npy_fp)
 
-    def disable_fetch_move_collisions(self, bodies, and_base=False):
+    def disable_fetch_move_collisions(
+        self,
+        bodies: List[physx.PhysxRigidDynamicComponent],
+        disable_base_collisions=False,
+    ):
         for body in bodies:
             for cs in body.get_collision_shapes():
                 cg = cs.get_collision_groups()
                 cg[2] |= FETCH_UNIQUE_COLLISION_BIT
-                if and_base:
+                if disable_base_collisions:
                     cg[2] |= FETCH_BASE_COLLISION_BIT
                 cs.set_collision_groups(cg)
 
