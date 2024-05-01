@@ -29,7 +29,7 @@ from mani_skill.utils.structs import Actor
 
 from ..scene_builder import ReplicaCADSceneBuilder, DATASET_CONFIG_DIR
 
-HIDDEN_OBJ_COLLISION_GROUP = 1 << 29
+HIDDEN_OBJ_COLLISION_GROUP = 30
 HIDDEN_POSE = sapien.Pose(p=[99999] * 3)
 
 
@@ -263,26 +263,15 @@ class ReplicaCADRearrangeSceneBuilder(ReplicaCADSceneBuilder):
         return (torch.randint(2**63 - 1, size=size) % (high - low) + low).int().tolist()
 
     def hide_actor(self, actor: Actor):
-        before_hide_cgs = []
-        for body in actor._bodies:
-            body_cgs = []
-            for cs in body.get_collision_shapes():
-                cg = cs.get_collision_groups()
-                body_cgs.append(copy.deepcopy(cg))
-                cg[2] |= HIDDEN_OBJ_COLLISION_GROUP
-                cs.set_collision_groups(cg)
-            before_hide_cgs.append(body_cgs)
-        self.before_hide_collision_groups[actor.name] = before_hide_cgs
-
+        actor.set_collision_group_bit(
+            group=2, bit_idx=HIDDEN_OBJ_COLLISION_GROUP, bit=1
+        )
         actor.set_pose(HIDDEN_POSE)
 
     def show_actor(self, actor: Actor, pose: sapien.Pose):
-        if actor.name in self.before_hide_collision_groups:
-            before_hide_cgs = self.before_hide_collision_groups.pop(actor.name)
-            for body, body_cgs in zip(actor._bodies, before_hide_cgs):
-                for cs, cg in zip(body.get_collision_shapes(), body_cgs):
-                    cs.set_collision_groups(cg)
-
+        actor.set_collision_group_bit(
+            group=2, bit_idx=HIDDEN_OBJ_COLLISION_GROUP, bit=0
+        )
         actor.set_pose(pose)
 
     @cached_property
