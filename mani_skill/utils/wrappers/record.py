@@ -8,6 +8,7 @@ import gymnasium as gym
 import h5py
 import numpy as np
 import sapien.physx as physx
+import torch
 
 from mani_skill import get_commit_info
 from mani_skill.envs.sapien_env import BaseEnv
@@ -212,10 +213,11 @@ class RecordEpisode(gym.Wrapper):
         save_video=True,
         info_on_video=False,
         save_on_reset=True,
+        save_video_trigger=None,
         max_steps_per_video=None,
         clean_on_close=True,
         record_reward=True,
-        video_fps=20,
+        video_fps=30,
         source_type=None,
         source_desc=None,
     ):
@@ -225,10 +227,13 @@ class RecordEpisode(gym.Wrapper):
         if save_trajectory or save_video:
             self.output_dir.mkdir(parents=True, exist_ok=True)
         self.video_fps = video_fps
+        self._elapsed_record_steps = 0
         self._episode_id = -1
         self._video_id = -1
         self._video_steps = 0
         self._closed = False
+
+        self.save_video_trigger = save_video_trigger
 
         self._trajectory_buffer: Step = None
 
@@ -267,12 +272,12 @@ class RecordEpisode(gym.Wrapper):
                 self._json_data["source_type"] = source_type
             if source_desc is not None:
                 self._json_data["source_desc"] = source_desc
-        self.save_video = save_video
+        self._save_video = save_video
         self.info_on_video = info_on_video
         self._render_images = []
-        if info_on_video and physx.is_gpu_enabled():
+        if info_on_video and self.num_envs > 1:
             raise ValueError(
-                "Cannot turn info_on_video=True when using GPU simulation as the text would be too small"
+                "Cannot turn info_on_video=True when the number of environments parallelized is > 1"
             )
         self.video_nrows = int(np.sqrt(self.unwrapped.num_envs))
 
@@ -283,6 +288,15 @@ class RecordEpisode(gym.Wrapper):
     @property
     def base_env(self) -> BaseEnv:
         return self.env.unwrapped
+
+    @property
+    def save_video(self):
+        if not self._save_video:
+            return False
+        if self.save_video_trigger is not None:
+            return self.save_video_trigger(self._elapsed_record_steps)
+        else:
+            return self._save_video
 
     def capture_image(self):
         img = self.env.render()
@@ -298,8 +312,6 @@ class RecordEpisode(gym.Wrapper):
         options: Optional[dict] = dict(),
         **kwargs,
     ):
-        if options is None:
-            options = dict()
 
         if self.save_on_reset:
             if self.save_video and self.num_envs == 1:
@@ -361,6 +373,8 @@ class RecordEpisode(gym.Wrapper):
                         for k in x.keys():
                             recursive_replace(x[k], y[k])
 
+                # TODO (stao): how do we store states from GPU sim of tasks with objects not in every sub-scene?
+                # Maybe we shouldn't?
                 recursive_replace(self._trajectory_buffer.state, first_step.state)
                 recursive_replace(
                     self._trajectory_buffer.observation, first_step.observation
@@ -455,6 +469,9 @@ class RecordEpisode(gym.Wrapper):
 
             if self.info_on_video:
                 scalar_info = gym_utils.extract_scalars_from_info(info)
+                if isinstance(rew, torch.Tensor) and len(rew.shape) > 1:
+                    rew = rew[0]
+                rew = float(common.to_numpy(rew))
                 extra_texts = [
                     f"reward: {rew:.3f}",
                     "action: {}".format(",".join([f"{x:.2f}" for x in action])),
@@ -467,13 +484,13 @@ class RecordEpisode(gym.Wrapper):
                 and self._video_steps >= self.max_steps_per_video
             ):
                 self.flush_video()
-
+        self._elapsed_record_steps += 1
         return obs, rew, terminated, truncated, info
 
     def flush_trajectory(
         self,
         verbose=False,
-        ignore_empty_transition=False,
+        ignore_empty_transition=True,
         env_idxs_to_flush=None,
     ):
         flush_count = 0
@@ -584,10 +601,9 @@ class RecordEpisode(gym.Wrapper):
                     dtype=bool,
                 )
                 episode_info.update(
-                    fail=self._trajectory_buffer.success[end_ptr - 1, env_idx]
+                    fail=self._trajectory_buffer.fail[end_ptr - 1, env_idx]
                 )
             recursive_add_to_h5py(group, self._trajectory_buffer.state, "env_states")
-
             if self.record_reward:
                 group.create_dataset(
                     "rewards",
@@ -647,15 +663,20 @@ class RecordEpisode(gym.Wrapper):
                 )
             self._trajectory_buffer.env_episode_ptr -= min_env_ptr
 
-    def flush_video(self, suffix="", verbose=False, ignore_empty_transition=True):
+    def flush_video(
+        self, name=None, suffix="", verbose=False, ignore_empty_transition=True
+    ):
         if len(self._render_images) == 0:
             return
         if ignore_empty_transition and len(self._render_images) == 1:
             return
         self._video_id += 1
-        video_name = "{}".format(self._video_id)
-        if suffix:
-            video_name += "_" + suffix
+        if name is None:
+            video_name = "{}".format(self._video_id)
+            if suffix:
+                video_name += "_" + suffix
+        else:
+            video_name = name
         images_to_video(
             self._render_images,
             str(self.output_dir),

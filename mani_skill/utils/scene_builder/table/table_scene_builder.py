@@ -76,7 +76,7 @@ class TableSceneBuilder(SceneBuilder):
             qpos[:, -2:] = 0.04
             self.env.agent.reset(qpos)
             self.env.agent.robot.set_pose(sapien.Pose([-0.615, 0, 0]))
-        elif self.env.robot_uids == "panda_realsensed435":
+        elif self.env.robot_uids == "panda_wristcam":
             # fmt: off
             qpos = np.array(
                 [0.0, np.pi / 8, 0, -np.pi * 5 / 8, 0, np.pi * 3 / 4, -np.pi / 4, 0.04, 0.04]
@@ -127,11 +127,9 @@ class TableSceneBuilder(SceneBuilder):
             self.env.agent.reset(qpos)
             self.env.agent.robot.set_pose(sapien.Pose([-1.05, 0, -self.table_height]))
 
-            for body in self.ground._bodies:
-                for cs in body.get_collision_shapes():
-                    cg = cs.get_collision_groups()
-                    cg[2] |= FETCH_UNIQUE_COLLISION_BIT
-                    cs.set_collision_groups(cg)
+            self.ground.set_collision_group_bit(
+                group=2, bit_idx=FETCH_UNIQUE_COLLISION_BIT, bit=1
+            )
         elif self.env.robot_uids == ("panda", "panda"):
             agent: MultiAgent = self.env.agent
             qpos = np.array(
@@ -162,7 +160,11 @@ class TableSceneBuilder(SceneBuilder):
             agent.agents[0].robot.set_pose(
                 sapien.Pose([0, -0.75, 0], q=euler2quat(0, 0, np.pi / 2))
             )
-        elif "dclaw" in self.env.robot_uids or "allegro" in self.env.robot_uids or "trifinger" in self.env.robot_uids:
+        elif (
+            "dclaw" in self.env.robot_uids
+            or "allegro" in self.env.robot_uids
+            or "trifinger" in self.env.robot_uids
+        ):
             # Need to specify the robot qpos for each sub-scenes using tensor api
             pass
 

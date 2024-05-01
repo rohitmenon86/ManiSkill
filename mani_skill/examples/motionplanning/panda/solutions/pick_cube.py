@@ -1,11 +1,15 @@
 import numpy as np
 import sapien
 
-from mani_skill.envs.tasks.pick_cube import PickCubeEnv
-from mani_skill.examples.motionplanning.panda.motionplanner import \
-    PandaArmMotionPlanningSolver
+from mani_skill.envs.tasks import PickCubeEnv
+from mani_skill.examples.motionplanning.panda.motionplanner import (
+    PandaArmMotionPlanningSolver,
+)
 from mani_skill.examples.motionplanning.panda.utils import (
-    compute_grasp_info_by_obb, get_actor_obb)
+    compute_grasp_info_by_obb,
+    get_actor_obb,
+)
+
 
 def solve(env: PickCubeEnv, seed=None, debug=False, vis=False):
     env.reset(seed=seed)
@@ -20,7 +24,6 @@ def solve(env: PickCubeEnv, seed=None, debug=False, vis=False):
 
     FINGER_LENGTH = 0.025
     env = env.unwrapped
-    
     # retrieves the object oriented bounding box (trimesh box object)
     obb = get_actor_obb(env.cube)
 

@@ -170,7 +170,7 @@ def tile_images(images: List[Array], nrows=1) -> Array:
     return output_image
 
 
-def put_text_on_image(image: Array, lines: List[str], rgb=(0, 255, 0)):
+def put_text_on_image(image: Array, lines: List[str]):
     assert image.dtype == np.uint8, image.dtype
     image = image.copy()
 

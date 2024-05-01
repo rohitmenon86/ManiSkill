@@ -1,7 +1,6 @@
 import copy
 import gc
 import os
-from collections import OrderedDict
 from functools import cached_property
 from typing import Any, Dict, List, Sequence, Tuple, Union
 
@@ -76,7 +75,7 @@ class BaseEnv(gym.Env):
             passing in a SimConfig object, while typed, will override every attribute including the task defaults. Some environments
             define their own recommended default sim configurations via the `self._default_sim_cfg` attribute that generally should not be
             completely overriden. For a full detail/explanation of what is in the sim config see the type hints / go to the source
-            https://github.com/haosulab/ManiSkill2/blob/main/mani_skill/utils/structs/types.py
+            https://github.com/haosulab/ManiSkill/blob/main/mani_skill/utils/structs/types.py
 
         reconfiguration_freq (int): How frequently to call reconfigure when environment is reset via `self.reset(...)`
             Generally for most users who are not building tasks this does not need to be changed. The default is 0, which means
@@ -113,15 +112,15 @@ class BaseEnv(gym.Env):
 
     _sensors: Dict[str, BaseSensor]
     """all sensors configured in this environment"""
-    _all_sensor_configs_parsed: Dict[str, BaseSensorConfig]
+    _sensor_configs: Dict[str, BaseSensorConfig]
     """all sensor configurations parsed from self._sensor_configs and agent._sensor_configs"""
-    _agent_sensor_configs_parsed: Dict[str, BaseSensorConfig]
+    _agent_sensor_configs: Dict[str, BaseSensorConfig]
     """all agent sensor configs parsed from agent._sensor_configs"""
     _human_render_cameras: Dict[str, Camera]
     """cameras used for rendering the current environment retrievable via `env.render_rgb_array()`. These are not used to generate observations"""
-    _human_render_camera_configs: Dict[str, CameraConfig]
+    _default_human_render_camera_configs: Dict[str, CameraConfig]
     """all camera configurations for cameras used for human render"""
-    _human_render_camera_configs_parsed: Dict[str, CameraConfig]
+    _human_render_camera_configs: Dict[str, CameraConfig]
     """all camera configurations parsed from self._human_render_camera_configs"""
 
     _hidden_objects: List[Union[Actor, Articulation]] = []
@@ -142,21 +141,26 @@ class BaseEnv(gym.Env):
         render_mode: str = None,
         shader_dir: str = "default",
         enable_shadow: bool = False,
-        sensor_cfgs: dict = None,
-        human_render_camera_cfgs: dict = None,
+        sensor_configs: dict = None,
+        human_render_camera_configs: dict = None,
         robot_uids: Union[str, BaseAgent, List[Union[str, BaseAgent]]] = None,
         sim_cfg: Union[SimConfig, dict] = dict(),
-        reconfiguration_freq: int = 0,
+        reconfiguration_freq: int = None,
         sim_backend: str = "auto",
     ):
         self.num_envs = num_envs
-        self.reconfiguration_freq = reconfiguration_freq
+        self.reconfiguration_freq = reconfiguration_freq if reconfiguration_freq is not None else 0
         self._reconfig_counter = 0
-        self._custom_sensor_configs = sensor_cfgs
-        self._custom_human_render_camera_configs = human_render_camera_cfgs
+        self._custom_sensor_configs = sensor_configs
+        self._custom_human_render_camera_configs = human_render_camera_configs
         self.robot_uids = robot_uids
         if self.SUPPORTED_ROBOTS is not None:
             assert robot_uids in self.SUPPORTED_ROBOTS
+
+        if physx.is_gpu_enabled() and num_envs == 1 and (sim_backend == "auto" or sim_backend == "cpu"):
+            logger.warn("GPU simulation has already been enabled on this process, switching to GPU backend")
+            sim_backend == "gpu"
+
         if num_envs > 1 or sim_backend == "gpu":
             if not physx.is_gpu_enabled():
                 physx.enable_gpu()
@@ -166,16 +170,23 @@ class BaseEnv(gym.Env):
         else:
             self.device = torch.device("cpu")
 
+        # raise a number of nicer errors
         if sim_backend == "cpu" and num_envs > 1:
             raise RuntimeError("""Cannot set the sim backend to 'cpu' and have multiple environments.
             If you want to do CPU sim backends and have environment vectorization you must use multi-processing across CPUs.
             This can be done via the gymnasium's AsyncVectorEnv API""")
+        if "rt" == shader_dir[:2]:
+            if obs_mode in ["sensor_data", "rgb", "rgbd", "pointcloud"]:
+                raise RuntimeError("""Currently you cannot use ray-tracing while running simulation with visual observation modes. You may still use
+                env.render_rgb_array() or the RecordEpisode wrapper to save videos of ray-traced results""")
+            if num_envs > 1:
+                raise RuntimeError("""Currently you cannot run ray-tracing on more than one environment in a single process""")
 
         # TODO (stao): move the merge code / handling union typed arguments outside here so classes inheriting BaseEnv only get
         # the already parsed sim config argument
         if isinstance(sim_cfg, SimConfig):
             sim_cfg = sim_cfg.dict()
-        merged_gpu_sim_cfg = self._default_sim_cfg.dict()
+        merged_gpu_sim_cfg = self._default_sim_config.dict()
         common.dict_merge(merged_gpu_sim_cfg, sim_cfg)
         self.sim_cfg = dacite.from_dict(data_class=SimConfig, data=merged_gpu_sim_cfg, config=dacite.Config(strict=True))
         """the final sim config after merging user overrides with the environment default"""
@@ -249,15 +260,11 @@ class BaseEnv(gym.Env):
         self._set_main_rng(2022)
         self._elapsed_steps = (
             torch.zeros(self.num_envs, device=self.device, dtype=torch.int32)
-            if physx.is_gpu_enabled()
-            else 0
         )
         obs, _ = self.reset(seed=2022, options=dict(reconfigure=True))
-        if physx.is_gpu_enabled():
-            obs = common.to_numpy(obs)
-        self._init_raw_obs = obs.copy()
-        """the raw observation returned by the env.reset. Useful for future observation wrappers to use to auto generate observation spaces"""
-        self._init_raw_state = common.to_numpy(self.get_state_dict())
+        self._init_raw_obs = common.to_cpu_tensor(obs)
+        """the raw observation returned by the env.reset (a cpu torch tensor/dict of tensors). Useful for future observation wrappers to use to auto generate observation spaces"""
+        self._init_raw_state = common.to_cpu_tensor(self.get_state_dict())
         """the initial raw state returned by env.get_state. Useful for reconstructing state dictionaries from flattened state vectors"""
 
         self.action_space = self.agent.action_space
@@ -267,8 +274,8 @@ class BaseEnv(gym.Env):
         self.single_observation_space
         self.observation_space
 
-    def _update_obs_space(self, obs: Any):
-        """call this function if you modify the observations returned by env.step and env.reset via an observation wrapper. The given observation must be a numpy array"""
+    def update_obs_space(self, obs: torch.Tensor):
+        """call this function if you modify the observations returned by env.step and env.reset via an observation wrapper."""
         self._init_raw_obs = obs
         del self.single_observation_space
         del self.observation_space
@@ -277,22 +284,20 @@ class BaseEnv(gym.Env):
 
     @cached_property
     def single_observation_space(self):
-        if physx.is_gpu_enabled():
-            return gym_utils.convert_observation_to_space(self._init_raw_obs, unbatched=True)
-        else:
-            return gym_utils.convert_observation_to_space(self._init_raw_obs)
+        return gym_utils.convert_observation_to_space(common.to_numpy(self._init_raw_obs), unbatched=True)
 
     @cached_property
     def observation_space(self):
-        if physx.is_gpu_enabled():
-            return batch_space(self.single_observation_space, n=self.num_envs)
-        else:
-            return self.single_observation_space
+        return batch_space(self.single_observation_space, n=self.num_envs)
 
     @property
-    def _default_sim_cfg(self):
+    def gpu_sim_enabled(self):
+        """Whether the gpu simulation is enabled. A wrapper over physx.is_gpu_enabled()"""
+        return physx.is_gpu_enabled()
+
+    @property
+    def _default_sim_config(self):
         return SimConfig()
-    
     def _load_agent(self, options: dict):
         agents = []
         robot_uids = self.robot_uids
@@ -322,21 +327,26 @@ class BaseEnv(gym.Env):
         # TODO (stao): do we stil need this?
         # set_articulation_render_material(self.agent.robot, specular=0.9, roughness=0.3)
     @property
-    def _sensor_configs(
+    def _default_sensor_configs(
         self,
     ) -> Union[
         BaseSensorConfig, Sequence[BaseSensorConfig], Dict[str, BaseSensorConfig]
     ]:
-        """Add (non-agent) sensors to the environment by returning sensor configurations"""
+        """Add default (non-agent) sensors to the environment by returning sensor configurations. These can be overriden by the user at
+        env creation time"""
         return []
     @property
-    def _human_render_camera_configs(
+    def _default_human_render_camera_configs(
         self,
     ) -> Union[
         BaseSensorConfig, Sequence[BaseSensorConfig], Dict[str, BaseSensorConfig]
     ]:
-        """Add cameras for rendering when using render_mode='rgb_array' """
+        """Add default cameras for rendering when using render_mode='rgb_array'. These can be overriden by the user at env creation time """
         return []
+
+    @property
+    def scene(self):
+        return self._scene
 
     @property
     def sim_freq(self):
@@ -408,7 +418,7 @@ class BaseEnv(gym.Env):
 
     def _get_obs_state_dict(self, info: Dict):
         """Get (ground-truth) state-based observations."""
-        return OrderedDict(
+        return dict(
             agent=self._get_obs_agent(),
             extra=self._get_obs_extra(info),
         )
@@ -419,7 +429,7 @@ class BaseEnv(gym.Env):
 
     def _get_obs_extra(self, info: Dict):
         """Get task-relevant extra observations."""
-        return OrderedDict()
+        return dict()
 
     def capture_sensor_data(self):
         """Capture data from all sensors (non-blocking)"""
@@ -428,31 +438,25 @@ class BaseEnv(gym.Env):
 
     def get_sensor_obs(self) -> Dict[str, Dict[str, torch.Tensor]]:
         """Get raw sensor data for use as observations."""
-        sensor_data = dict()
-        for name, sensor in self._sensors.items():
-            sensor_data[name] = sensor.get_obs()
-        return sensor_data
+        return self.scene.get_sensor_obs()
 
     def get_sensor_images(self) -> Dict[str, Dict[str, torch.Tensor]]:
         """Get raw sensor data as images for visualization purposes."""
-        sensor_data = OrderedDict()
-        for name, sensor in self._sensors.items():
-            sensor_data[name] = sensor.get_images()
-        return sensor_data
+        return self.scene.get_sensor_images()
 
     def get_sensor_params(self) -> Dict[str, Dict[str, torch.Tensor]]:
         """Get all sensor parameters."""
-        params = OrderedDict()
+        params = dict()
         for name, sensor in self._sensors.items():
             params[name] = sensor.get_params()
         return params
 
-    def _get_obs_with_sensor_data(self, info: Dict) -> OrderedDict:
+    def _get_obs_with_sensor_data(self, info: Dict) -> dict:
         for obj in self._hidden_objects:
             obj.hide_visual()
         self._scene.update_render()
         self.capture_sensor_data()
-        return OrderedDict(
+        return dict(
             agent=self._get_obs_agent(),
             extra=self._get_obs_extra(info),
             sensor_param=self.get_sensor_params(),
@@ -473,19 +477,7 @@ class BaseEnv(gym.Env):
 
     def get_reward(self, obs: Any, action: torch.Tensor, info: Dict):
         if self._reward_mode == "sparse":
-            if "success" in info:
-                if "fail" in info:
-                    if isinstance(info["success"], torch.Tensor):
-                        reward = info["success"].to(torch.float) - info["fail"].to(torch.float)
-                    else:
-                        reward = info["success"] - info["fail"]
-                else:
-                    reward = info["success"]
-            else:
-                if "fail" in info:
-                    reward = -info["fail"]
-                else:
-                    reward = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+            reward = self.compute_sparse_reward(obs=obs, action=action, info=info)
         elif self._reward_mode == "dense":
             reward = self.compute_dense_reward(obs=obs, action=action, info=info)
         elif self._reward_mode == "normalized_dense":
@@ -493,12 +485,28 @@ class BaseEnv(gym.Env):
                 obs=obs, action=action, info=info
             )
         elif self._reward_mode == "none":
-            reward = 0
-            if physx.is_gpu_enabled():
-                reward = torch.zeros((self.num_envs, ), dtype=torch.float, device=self.device)
+            reward = torch.zeros((self.num_envs, ), dtype=torch.float, device=self.device)
         else:
             raise NotImplementedError(self._reward_mode)
         return reward
+
+    def compute_sparse_reward(self, obs: Any, action: torch.Tensor, info: Dict):
+        """
+        Computes the sparse reward. By default this function tries to use the success/fail information in
+        returned by the evaluate function and gives +1 if success, -1 if fail, 0 otherwise"""
+        if "success" in info:
+            if "fail" in info:
+                if isinstance(info["success"], torch.Tensor):
+                    reward = info["success"].to(torch.float) - info["fail"].to(torch.float)
+                else:
+                    reward = info["success"] - info["fail"]
+            else:
+                reward = info["success"]
+        else:
+            if "fail" in info:
+                reward = -info["fail"]
+            else:
+                reward = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
 
     def compute_dense_reward(self, obs: Any, action: torch.Tensor, info: Dict):
         raise NotImplementedError()
@@ -533,7 +541,6 @@ class BaseEnv(gym.Env):
 
         if physx.is_gpu_enabled():
             self._scene._setup_gpu()
-            self._scene._gpu_fetch_all()
         # for GPU sim, we have to setup sensors after we call setup gpu in order to enable loading mounted sensors as they depend on GPU buffer data
         self._setup_sensors(options)
         if self._viewer is not None:
@@ -560,37 +567,37 @@ class BaseEnv(gym.Env):
         """Setup sensor configurations and the sensor objects in the scene. Called by `self._reconfigure`"""
 
         # First create all the configurations
-        self._all_sensor_configs_parsed = OrderedDict()
+        self._sensor_configs = dict()
 
         # Add task/external sensors
-        self._all_sensor_configs_parsed.update(parse_camera_cfgs(self._sensor_configs))
+        self._sensor_configs.update(parse_camera_cfgs(self._default_sensor_configs))
 
         # Add agent sensors
-        self._agent_sensor_configs_parsed = OrderedDict()
-        self._agent_sensor_configs_parsed = parse_camera_cfgs(self.agent._sensor_configs)
-        self._all_sensor_configs_parsed.update(self._agent_sensor_configs_parsed)
+        self._agent_sensor_configs = dict()
+        self._agent_sensor_configs = parse_camera_cfgs(self.agent._sensor_configs)
+        self._sensor_configs.update(self._agent_sensor_configs)
 
         # Add human render camera configs
-        self._human_render_camera_configs_parsed = parse_camera_cfgs(
-            self._human_render_camera_configs
+        self._human_render_camera_configs = parse_camera_cfgs(
+            self._default_human_render_camera_configs
         )
 
         # Override camera configurations with user supplied configurations
         if self._custom_sensor_configs is not None:
             update_camera_cfgs_from_dict(
-                self._all_sensor_configs_parsed, self._custom_sensor_configs
+                self._sensor_configs, self._custom_sensor_configs
             )
         if self._custom_human_render_camera_configs is not None:
             update_camera_cfgs_from_dict(
-                self._human_render_camera_configs_parsed,
+                self._human_render_camera_configs,
                 self._custom_human_render_camera_configs,
             )
 
         # Now we instantiate the actual sensor objects
-        self._sensors = OrderedDict()
+        self._sensors = dict()
 
-        for uid, sensor_cfg in self._all_sensor_configs_parsed.items():
-            if uid in self._agent_sensor_configs_parsed:
+        for uid, sensor_cfg in self._sensor_configs.items():
+            if uid in self._agent_sensor_configs:
                 articulation = self.agent.robot
             else:
                 articulation = None
@@ -605,8 +612,8 @@ class BaseEnv(gym.Env):
             )
 
         # Cameras for rendering only
-        self._human_render_cameras = OrderedDict()
-        for uid, camera_cfg in self._human_render_camera_configs_parsed.items():
+        self._human_render_cameras = dict()
+        for uid, camera_cfg in self._human_render_camera_configs.items():
             self._human_render_cameras[uid] = Camera(
                 camera_cfg,
                 self._scene,
@@ -676,6 +683,8 @@ class BaseEnv(gym.Env):
         # or disable partial reset features explicitly for tasks that have a reconfiguration frequency
         if "env_idx" in options:
             env_idx = options["env_idx"]
+            if len(env_idx) != self.num_envs and reconfigure:
+                raise RuntimeError("Cannot do a partial reset and reconfigure the environment. You must do one or the other.")
             self._scene._reset_mask = torch.zeros(
                 self.num_envs, dtype=bool, device=self.device
             )
@@ -685,10 +694,7 @@ class BaseEnv(gym.Env):
             self._scene._reset_mask = torch.ones(
                 self.num_envs, dtype=bool, device=self.device
             )
-        if physx.is_gpu_enabled():
-            self._elapsed_steps[env_idx] = 0
-        else:
-            self._elapsed_steps = 0
+        self._elapsed_steps[env_idx] = 0
 
         self._clear_sim_state()
         if self.reconfiguration_freq != 0:
@@ -709,9 +715,6 @@ class BaseEnv(gym.Env):
             self._scene.px.gpu_update_articulation_kinematics()
             self._scene._gpu_fetch_all()
         obs = self.get_obs()
-        if not physx.is_gpu_enabled():
-            obs = common.to_numpy(common.unbatch(obs))
-            self._elapsed_steps = 0
         return obs, dict(reconfigure=reconfigure)
 
     def _set_main_rng(self, seed):
@@ -744,14 +747,13 @@ class BaseEnv(gym.Env):
     def _clear_sim_state(self):
         """Clear simulation state (velocities)"""
         for actor in self._scene.actors.values():
-            if actor.px_body_type == "static":
-                continue
-            actor.set_linear_velocity([0, 0, 0])
-            actor.set_angular_velocity([0, 0, 0])
+            if actor.px_body_type == "dynamic":
+                actor.set_linear_velocity([0., 0., 0.])
+                actor.set_angular_velocity([0., 0., 0.])
         for articulation in self._scene.articulations.values():
             articulation.set_qvel(np.zeros(articulation.max_dof))
-            articulation.set_root_linear_velocity([0, 0, 0])
-            articulation.set_root_angular_velocity([0, 0, 0])
+            articulation.set_root_linear_velocity([0., 0., 0.])
+            articulation.set_root_angular_velocity([0., 0., 0.])
         if physx.is_gpu_enabled():
             self._scene._gpu_apply_all()
             self._scene._gpu_fetch_all()
@@ -779,23 +781,13 @@ class BaseEnv(gym.Env):
             else:
                 terminated = torch.zeros(self.num_envs, dtype=bool, device=self.device)
 
-        if physx.is_gpu_enabled():
-            return (
-                obs,
-                reward,
-                terminated,
-                torch.zeros(self.num_envs, dtype=bool, device=self.device),
-                info,
-            )
-        else:
-            # On CPU sim mode, we always return numpy / python primitives without any batching.
-            return common.unbatch(
-                common.to_numpy(obs),
-                common.to_numpy(reward),
-                common.to_numpy(terminated),
-                False,
-                common.to_numpy(info),
-            )
+        return (
+            obs,
+            reward,
+            terminated,
+            torch.zeros(self.num_envs, dtype=bool, device=self.device),
+            info,
+        )
 
     def step_action(
         self, action: Union[None, np.ndarray, torch.Tensor, Dict]
@@ -887,7 +879,10 @@ class BaseEnv(gym.Env):
     # Simulation and other gym interfaces
     # -------------------------------------------------------------------------- #
     def _set_scene_config(self):
-        physx.set_scene_config(**self.sim_cfg.scene_cfg.dict())
+        # **self.sim_cfg.scene_cfg.dict()
+        physx.set_shape_config(contact_offset=self.sim_cfg.scene_cfg.contact_offset, rest_offset=self.sim_cfg.scene_cfg.rest_offset)
+        physx.set_body_config(solver_position_iterations=self.sim_cfg.scene_cfg.solver_position_iterations, solver_velocity_iterations=self.sim_cfg.scene_cfg.solver_velocity_iterations, sleep_threshold=self.sim_cfg.scene_cfg.sleep_threshold)
+        physx.set_scene_config(gravity=self.sim_cfg.scene_cfg.gravity, bounce_threshold=self.sim_cfg.scene_cfg.bounce_threshold, enable_pcm=self.sim_cfg.scene_cfg.enable_pcm, enable_tgs=self.sim_cfg.scene_cfg.enable_tgs, enable_ccd=self.sim_cfg.scene_cfg.enable_ccd, enable_enhanced_determinism=self.sim_cfg.scene_cfg.enable_enhanced_determinism, enable_friction_every_iteration=self.sim_cfg.scene_cfg.enable_friction_every_iteration, cpu_workers=self.sim_cfg.scene_cfg.cpu_workers )
         physx.set_default_material(**self.sim_cfg.default_materials_cfg.dict())
 
     def _setup_scene(self):
@@ -932,8 +927,8 @@ class BaseEnv(gym.Env):
         """
         self._close_viewer()
         self.agent = None
-        self._sensors = OrderedDict()
-        self._human_render_cameras = OrderedDict()
+        self._sensors = dict()
+        self._human_render_cameras = dict()
         self._scene = None
         self._hidden_objects = []
 
@@ -1096,9 +1091,9 @@ class BaseEnv(gym.Env):
         images = []
         self._scene.update_render()
         self.capture_sensor_data()
-        sensor_images = self.get_sensor_obs()
-        for sensor_images in sensor_images.values():
-            images.extend(observations_to_images(sensor_images))
+        sensor_images = self.get_sensor_images()
+        for image in sensor_images.values():
+            images.append(image)
         return tile_images(images)
 
     def render(self):
@@ -1115,13 +1110,9 @@ class BaseEnv(gym.Env):
             return self.render_human()
         elif self.render_mode == "rgb_array":
             res = self.render_rgb_array()
-            if self.num_envs == 1:
-                res = common.to_numpy(common.unbatch(res))
             return res
         elif self.render_mode == "sensors":
             res = self.render_sensors()
-            if self.num_envs == 1:
-                res = common.to_numpy(common.unbatch(res))
             return res
         else:
             raise NotImplementedError(f"Unsupported render mode {self.render_mode}.")
@@ -1154,3 +1145,34 @@ class BaseEnv(gym.Env):
     #     scene_mesh = merge_meshes(meshes)
     #     scene_pcd = scene_mesh.sample(num_points)
     #     return scene_pcd
+
+
+    # Printing metrics/info
+    def print_sim_details(self):
+        sensor_settings_str = []
+        for uid, cam in self._sensors.items():
+            if isinstance(cam, Camera):
+                cfg = cam.cfg
+                sensor_settings_str.append(f"RGBD({cfg.width}x{cfg.height})")
+        sensor_settings_str = ", ".join(sensor_settings_str)
+        sim_backend = "gpu" if physx.is_gpu_enabled() else "cpu"
+        print(
+        "# -------------------------------------------------------------------------- #"
+        )
+        print(
+            f"Task ID: {self.spec.id}, {self.num_envs} parallel environments, sim_backend={sim_backend}"
+        )
+        print(
+            f"obs_mode={self.obs_mode}, control_mode={self.control_mode}"
+        )
+        print(
+            f"render_mode={self.render_mode}, sensor_details={sensor_settings_str}"
+        )
+        print(
+            f"sim_freq={self.sim_freq}, control_freq={self.control_freq}"
+        )
+        print(f"observation space: {self.observation_space}")
+        print(f"(single) action space: {self.single_action_space}")
+        print(
+            "# -------------------------------------------------------------------------- #"
+        )

@@ -43,7 +43,8 @@ def _batch(array: Union[Array, Sequence]):
 
 def batch(*args: Tuple[Union[Array, Sequence]]):
     """Adds one dimension in front of everything. If given a dictionary, every leaf in the dictionary
-    has a new dimension. If given a tuple, returns the same tuple with each element batched"""
+    has a new dimension. If given a tuple, returns the same tuple with each element batched
+    """
     x = [_batch(x) for x in args]
     if len(args) == 1:
         return x[0]
@@ -85,7 +86,8 @@ def append_dict_array(
 ):
     """Append `x2` in front of `x1` and returns the result. Tries to do this in place if possible.
     Assumes both `x1, x2` have the same dictionary structure if they are dictionaries.
-    They may also both be lists/sequences in which case this is just appending like normal"""
+    They may also both be lists/sequences in which case this is just appending like normal
+    """
     if isinstance(x1, np.ndarray):
         if len(x1.shape) > len(x2.shape):
             # if different dims, check if extra dim is just a 1 due to single env in batch mode and if so, add it to x2.
@@ -137,7 +139,7 @@ def to_tensor(array: Union[torch.Tensor, np.array, Sequence], device: Device = N
     """
     if isinstance(array, (dict)):
         return {k: to_tensor(v) for k, v in array.items()}
-    if get_backend_name() == "torch":
+    if physx.is_gpu_enabled():
         if isinstance(array, np.ndarray):
             if array.dtype == np.uint16:
                 array = array.astype(np.int32)
@@ -147,12 +149,12 @@ def to_tensor(array: Union[torch.Tensor, np.array, Sequence], device: Device = N
         elif isinstance(array, torch.Tensor):
             ret = array
         else:
-            ret = torch.Tensor(array)
+            ret = torch.tensor(array)
         if device is None:
             return ret.cuda()
         else:
             return ret.to(device)
-    elif get_backend_name() == "numpy":
+    else:
         if isinstance(array, np.ndarray):
             if array.dtype == np.uint16:
                 array = array.astype(np.int32)
@@ -173,6 +175,23 @@ def to_tensor(array: Union[torch.Tensor, np.array, Sequence], device: Device = N
             return ret.to(device)
 
 
+def to_cpu_tensor(array: Union[torch.Tensor, np.array, Sequence]):
+    """
+    Maps any given sequence to a torch tensor on the CPU.
+    """
+    if isinstance(array, (dict)):
+        return {k: to_tensor(v) for k, v in array.items()}
+    if isinstance(array, np.ndarray):
+        ret = torch.from_numpy(array)
+        if ret.dtype == torch.float64:
+            ret = ret.float()
+        return ret
+    elif isinstance(array, torch.Tensor):
+        return array.cpu()
+    else:
+        return torch.tensor(array).cpu()
+
+
 # TODO (stao): Clean up this code
 def flatten_state_dict(
     state_dict: dict, use_torch=False, device: Device = None
@@ -181,6 +200,7 @@ def flatten_state_dict(
 
     Args:
         state_dict: a dictionary containing scalars or 1-dim vectors.
+        use_torch (bool): Whether to convert the data to torch tensors.
 
     Raises:
         AssertionError: If a value of @state_dict is an ndarray with ndim > 2.
@@ -189,7 +209,7 @@ def flatten_state_dict(
         np.ndarray | torch.Tensor: flattened states.
 
     Notes:
-        The input is recommended to be ordered (e.g. OrderedDict).
+        The input is recommended to be ordered (e.g. dict).
         However, since python 3.7, dictionary order is guaranteed to be insertion order.
     """
     states = []
@@ -223,15 +243,12 @@ def flatten_state_dict(
             if use_torch:
                 state = to_tensor(state)
 
+        elif isinstance(value, torch.Tensor):
+            state = value
+            if len(state.shape) == 1:
+                state = state[:, None]
         else:
-            is_torch_tensor = False
-            if isinstance(value, torch.Tensor):
-                state = value
-                if len(state.shape) == 1:
-                    state = state[:, None]
-                is_torch_tensor = True
-            if not is_torch_tensor:
-                raise TypeError("Unsupported type: {}".format(type(value)))
+            raise TypeError("Unsupported type: {}".format(type(value)))
         if state is not None:
             states.append(state)
 

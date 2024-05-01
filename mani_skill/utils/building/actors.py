@@ -84,11 +84,8 @@ def build_sphere(
     name: str,
     body_type: str = "dynamic",
     add_collision: bool = True,
-    scene_mask=None,
 ):
     builder = scene.create_actor_builder()
-    if scene_mask is not None:
-        builder.set_scene_mask(scene_mask)
     if add_collision:
         builder.add_sphere_collision(
             radius=radius,
@@ -362,7 +359,9 @@ def build_colorful_cube(
 
     if add_collision:
         builder._mass = 0.1
-        cube_material = sapien.pysapien.physx.PhysxMaterial(static_friction=5, dynamic_friction=3, restitution=0)
+        cube_material = sapien.pysapien.physx.PhysxMaterial(
+            static_friction=5, dynamic_friction=3, restitution=0
+        )
         builder.add_box_collision(
             half_size=[half_size] * 3,
             material=cube_material,

@@ -1,6 +1,6 @@
 # Tasks
 
-ManiSkill is both an API as well as a source of high-quality simulated tasks in robotics. We encourage users to build off the ManiSkill API in their own codebases using our flexible API for CPU/GPU simulation. The documentation on how to use the ManiSkill API to do so is here: https://maniskill.readthedocs.io/en/dev/user_guide/tutorials/custom_tasks.html
+ManiSkill is both an API as well as a source of high-quality simulated tasks in robotics. We encourage users to build off the ManiSkill API in their own codebases using our flexible API for CPU/GPU simulation. The documentation on how to use the ManiSkill API to do so is here: https://maniskill.readthedocs.io/en/latest/user_guide/tutorials/custom_tasks.html
 
 For those who want to maintain a high standard for task building in addition to contributing official tasks to ManiSkill, we require the following
 - Proper labelling of which robots/agents are supported
@@ -66,7 +66,7 @@ class PushCube(BaseEnv):
     # ...
     # Specify default simulation/gpu memory configurations to override any default values
     @property
-    def _default_sim_cfg(self):
+    def _default_sim_config(self):
         return SimConfig(
             gpu_memory_cfg=GPUMemoryConfig(
                 found_lost_pairs_capacity=2**25, max_rigid_patch_count=2**18
@@ -81,7 +81,7 @@ from mani_skill.utils.structs.types import GPUMemoryConfig, SimConfig
 class RotateSingleObjectInHand(BaseEnv):
     # ...
     @property
-    def _default_sim_cfg(self):
+    def _default_sim_config(self):
         return SimConfig(
             gpu_memory_cfg=GPUMemoryConfig(
                 max_rigid_contact_count=self.num_envs * max(1024, self.num_envs) * 8,

@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-__version__ = "3.0.0.dev13"
+__version__ = "3.0.0.dev14"
 
 long_description = """ManiSkill is a powerful unified framework for robot simulation and training powered by [SAPIEN](https://sapien.ucsd.edu/). The entire stack is as open-source as possible. Among its features, it includes
 - GPU parallelized visual data collection system. A policy can collect RGBD + Segmentation data at about 10,000+ FPS with 1 GPU, 10-100x faster than any other simulator
@@ -8,7 +8,7 @@ long_description = """ManiSkill is a powerful unified framework for robot simula
 - GPU parallelized tasks, enabling incredibly fast synthetic data collection in simulation at the same or faster speed as other GPU sims like IsaacSim
 - GPU parallelized tasks support simulating diverse scenes where every parallel environment has a completely different scene/set of objects
 - Flexible task building API
-Please refer our [documentation](https://maniskill.readthedocs.io/en/dev) to learn more information."""
+Please refer our [documentation](https://maniskill.readthedocs.io/en/latest) to learn more information."""
 
 setup(
     name="mani_skill",
@@ -17,16 +17,16 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     author="ManiSkill contributors",
-    url="https://github.com/haosulab/ManiSkill2",
+    url="https://github.com/haosulab/ManiSkill",
     packages=find_packages(include=["mani_skill*"]),
-    python_requires=">=3.8",
+    python_requires=">=3.9",
     setup_requires=["setuptools>=62.3.0"],
     install_requires=[
         "numpy>=1.22",
         "scipy",
         "dacite",
         "gymnasium==0.29.1",
-        "sapien==3.0.0.dev2",
+        "sapien==3.0.0.b0",
         "h5py",
         "pyyaml",
         "tqdm",

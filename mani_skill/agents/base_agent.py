@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections import OrderedDict
-from typing import TYPE_CHECKING, Dict, List, Union
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import numpy as np
 import sapien
@@ -10,9 +10,13 @@ import torch
 from gymnasium import spaces
 
 from mani_skill import format_path
+from mani_skill.agents.controllers.pd_joint_pos import (
+    PDJointPosController,
+    PDJointPosControllerConfig,
+)
 from mani_skill.sensors.base_sensor import BaseSensor, BaseSensorConfig
 from mani_skill.utils import sapien_utils
-from mani_skill.utils.structs import Actor, Articulation
+from mani_skill.utils.structs import Actor, Array, Articulation, Pose
 
 from .controllers.base_controller import (
     BaseController,
@@ -24,6 +28,13 @@ from .controllers.base_controller import (
 if TYPE_CHECKING:
     from mani_skill.envs.scene import ManiSkillScene
 DictControllerConfig = Dict[str, ControllerConfig]
+
+
+@dataclass
+class Keyframe:
+    pose: sapien.Pose
+    qpos: Optional[Array] = None
+    qvel: Optional[Array] = None
 
 
 class BaseAgent:
@@ -42,29 +53,43 @@ class BaseAgent:
 
     uid: str
     """unique identifier string of this"""
-    urdf_path: str
+    urdf_path: str = None
     """path to the .urdf file describe the agent's geometry and visuals"""
     urdf_config: dict = None
     """Optional provide a urdf_config to further modify the created articulation"""
+    mjcf_path: str = None
+    """path to a MJCF .xml file defining a robot. This will only load the articulation defined in the XML and nothing else"""
+
+    fix_root_link: bool = True
+    """Whether to fix the root link of the robot"""
+    load_multiple_collisions: bool = False
+    """Whether the referenced collision meshes of a robot definition should be loaded as multiple convex collisions"""
+    disable_self_collisions: bool = False
+    """Whether to disable self collisions. This is generally not recommended as you should be defining a SRDF file to exclude specific collisions.
+    However for some robots/tasks it may be easier to disable all self collisions between links in the robot to increase simulation speed
+    """
+
+    keyframes: Dict[str, Keyframe] = dict()
+    """a dict of predefined keyframes similar to what Mujoco does that you can use to reset the agent to that may be of interest"""
 
     def __init__(
         self,
         scene: ManiSkillScene,
         control_freq: int,
         control_mode: str = None,
-        fix_root_link=True,
         agent_idx: int = None,
     ):
         self.scene = scene
         self._control_freq = control_freq
         self._agent_idx = agent_idx
 
-        # URDF
-        self.fix_root_link = fix_root_link
-
         self.robot: Articulation = None
         self.controllers: Dict[str, BaseController] = dict()
         self.sensors: Dict[str, BaseSensor] = dict()
+
+        self.controllers = dict()
+        self._load_articulation()
+        self._after_loading_articulation()
 
         # Controller
         self.supported_control_modes = list(self._controller_configs.keys())
@@ -72,11 +97,9 @@ class BaseAgent:
             control_mode = self.supported_control_modes[0]
         # The control mode after reset for consistency
         self._default_control_mode = control_mode
-        self.controllers = OrderedDict()
-        self._load_articulation()
-        self._after_loading_articulation()
-        self._after_init()
         self.set_control_mode()
+
+        self._after_init()
 
     @property
     def _sensor_configs(self) -> List[BaseSensorConfig]:
@@ -86,7 +109,26 @@ class BaseAgent:
     def _controller_configs(
         self,
     ) -> Dict[str, Union[ControllerConfig, DictControllerConfig]]:
-        raise NotImplementedError()
+
+        return dict(
+            pd_joint_pos=PDJointPosControllerConfig(
+                [x.name for x in self.robot.active_joints],
+                lower=None,
+                upper=None,
+                stiffness=100,
+                damping=10,
+                normalize_action=False,
+            ),
+            pd_joint_delta_pos=PDJointPosControllerConfig(
+                [x.name for x in self.robot.active_joints],
+                lower=-0.1,
+                upper=0.1,
+                stiffness=100,
+                damping=10,
+                normalize_action=True,
+                use_delta=True,
+            ),
+        )
 
     @property
     def device(self):
@@ -96,22 +138,27 @@ class BaseAgent:
         """
         Load the robot articulation
         """
-        loader = self.scene.create_urdf_loader()
+        if self.urdf_path is not None:
+            loader = self.scene.create_urdf_loader()
+            asset_path = format_path(str(self.urdf_path))
+        elif self.mjcf_path is not None:
+            loader = self.scene.create_mjcf_loader()
+            asset_path = format_path(str(self.mjcf_path))
+
         loader.name = self.uid
         if self._agent_idx is not None:
             loader.name = f"{self.uid}-agent-{self._agent_idx}"
         loader.fix_root_link = self.fix_root_link
-
-        urdf_path = format_path(str(self.urdf_path))
+        loader.load_multiple_collisions_from_file = self.load_multiple_collisions
+        loader.disable_self_collisions = self.disable_self_collisions
 
         if self.urdf_config is not None:
-            urdf_config = sapien_utils.parse_urdf_config(self.urdf_config, self.scene)
+            urdf_config = sapien_utils.parse_urdf_config(self.urdf_config)
             sapien_utils.check_urdf_config(urdf_config)
+            sapien_utils.apply_urdf_config(loader, urdf_config)
 
-        # TODO(jigu): support loading multiple convex collision shapes
-        sapien_utils.apply_urdf_config(loader, urdf_config)
-        self.robot: Articulation = loader.load(urdf_path)
-        assert self.robot is not None, f"Fail to load URDF from {urdf_path}"
+        self.robot: Articulation = loader.load(asset_path)
+        assert self.robot is not None, f"Fail to load URDF/MJCF from {asset_path}"
 
         # Cache robot link ids
         self.robot_link_ids = [link.name for link in self.robot.get_links()]
@@ -146,8 +193,8 @@ class BaseAgent:
         # create controller on the fly here
         if control_mode not in self.controllers:
             config = self._controller_configs[self._control_mode]
+            balance_passive_force = True
             if isinstance(config, dict):
-                balance_passive_force = True
                 if "balance_passive_force" in config:
                     balance_passive_force = config.pop("balance_passive_force")
                 self.controllers[control_mode] = CombinedController(
@@ -155,18 +202,13 @@ class BaseAgent:
                     self.robot,
                     self._control_freq,
                     scene=self.scene,
-                    balance_passive_force=balance_passive_force,
                 )
             else:
                 self.controllers[control_mode] = config.controller_cls(
                     config, self.robot, self._control_freq, scene=self.scene
                 )
             self.controllers[control_mode].set_drive_property()
-            if (
-                isinstance(self.controllers[control_mode], DictController)
-                and self.controllers[control_mode].balance_passive_force
-                and physx.is_gpu_enabled()
-            ):
+            if balance_passive_force:
                 # NOTE (stao): Balancing passive force is currently not supported in PhysX, so we work around by disabling gravity
                 for link in self.robot.links:
                     link.disable_gravity = True
@@ -222,7 +264,7 @@ class BaseAgent:
         """
         Get the proprioceptive state of the agent.
         """
-        obs = OrderedDict(qpos=self.robot.get_qpos(), qvel=self.robot.get_qvel())
+        obs = dict(qpos=self.robot.get_qpos(), qvel=self.robot.get_qvel())
         controller_state = self.controller.get_state()
         if len(controller_state) > 0:
             obs.update(controller=controller_state)
@@ -230,7 +272,7 @@ class BaseAgent:
 
     def get_state(self) -> Dict:
         """Get current state, including robot state and controller state"""
-        state = OrderedDict()
+        state = dict()
 
         # robot state
         root_link = self.robot.get_links()[0]
@@ -248,7 +290,7 @@ class BaseAgent:
     def set_state(self, state: Dict, ignore_controller=False):
         # robot state
         self.robot.set_root_pose(state["robot_root_pose"])
-        self.robot.set_root_velocity(state["robot_root_vel"])
+        self.robot.set_root_linear_velocity(state["robot_root_vel"])
         self.robot.set_root_angular_velocity(state["robot_root_qvel"])
         self.robot.set_qpos(state["robot_qpos"])
         self.robot.set_qvel(state["robot_qvel"])

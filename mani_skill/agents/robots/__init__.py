@@ -1,25 +1,13 @@
-from mani_skill.agents.robots.anymal.anymal_c import ANYmalC
-
 from .allegro_hand import AllegroHandLeft, AllegroHandRight, AllegroHandRightTouch
+from .anymal import ANYmalC
 from .dclaw import DClaw
 from .fetch import Fetch
-from .panda import Panda, PandaRealSensed435
+from .humanoid import Humanoid
+from .panda import *
+from .stompy import Stompy
+from .trifingerpro import TriFingerPro
+from .unitree_go import *
+from .unitree_h1 import UnitreeH1, UnitreeH1Simplified
+from .ur_e import UR10e
 from .xarm import XArm7Ability
 from .xmate3 import Xmate3Robotiq
-from .trifingerpro import TriFingerPro
-
-# = {
-#     "panda": Panda,
-#     "mobile_panda_dual_arm": MobilePandaDualArm,
-#     "mobile_panda_single_arm": MobilePandaSingleArm,
-#     "xmate3_robotiq": Xmate3Robotiq,
-#     "fetch": Fetch,
-#     # Dexterous Hand
-#     "dclaw": DClaw,
-#     "xarm7_ability": XArm7Ability,
-#     "allegro_hand_right": AllegroHandRight,
-#     "allegro_hand_left": AllegroHandLeft,
-#     "allegro_hand_right_touch": AllegroHandRightTouch,
-#     # Locomotion
-#     "anymal-c": ANYmalC,
-# }

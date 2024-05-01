@@ -2,16 +2,18 @@ import argparse
 import gymnasium as gym
 import numpy as np
 import sapien
-from tqdm import tqdm
-import os.path as osp
 from transforms3d.euler import euler2quat
 
-from mani_skill.envs import StackCubeEnv
-from mani_skill.examples.motionplanning.panda.motionplanner import \
-    PandaArmMotionPlanningSolver
+from mani_skill.envs.tasks import StackCubeEnv
+from mani_skill.examples.motionplanning.panda.motionplanner import (
+    PandaArmMotionPlanningSolver,
+)
 from mani_skill.examples.motionplanning.panda.utils import (
-    compute_grasp_info_by_obb, get_actor_obb)
+    compute_grasp_info_by_obb,
+    get_actor_obb,
+)
 from mani_skill.utils.wrappers.record import RecordEpisode
+
 
 def solve(env: StackCubeEnv, seed=None, debug=False, vis=False):
     env.reset(seed=seed)
@@ -79,7 +81,9 @@ def solve(env: StackCubeEnv, seed=None, debug=False, vis=False):
     # Stack
     # -------------------------------------------------------------------------- #
     goal_pose = env.cubeB.pose * sapien.Pose([0, 0, env.cube_half_size[2] * 2])
-    offset = (goal_pose.p - env.cubeA.pose.p).numpy()[0] # remember that all data in ManiSkill is batched and a torch tensor
+    offset = (goal_pose.p - env.cubeA.pose.p).numpy()[
+        0
+    ]  # remember that all data in ManiSkill is batched and a torch tensor
     align_pose = sapien.Pose(lift_pose.p + offset, lift_pose.q)
     planner.move_to_pose_with_screw(align_pose)
 

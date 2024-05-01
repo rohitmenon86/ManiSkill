@@ -7,6 +7,7 @@ from mani_skill.agents.base_agent import BaseAgent
 from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.envs.scene import ManiSkillScene
 from mani_skill.utils.structs.pose import to_sapien_pose
+import sapien.physx as physx
 
 OPEN = 1
 CLOSED = -1
@@ -125,7 +126,7 @@ class PandaArmMotionPlanningSolver:
         # try screw two times before giving up
         if self.grasp_pose_visual is not None:
             self.grasp_pose_visual.set_pose(pose)
-        pose = sapien.Pose(p=pose.p , q=pose.q)
+        pose = sapien.Pose(p=pose.p, q=pose.q)
         result = self.planner.plan_screw(
             np.concatenate([pose.p, pose.q]),
             self.robot.get_qpos().cpu().numpy()[0],
@@ -222,7 +223,7 @@ def build_panda_gripper_grasp_pose_visual(scene: ManiSkillScene):
     builder.add_sphere_visual(
         pose=sapien.Pose(p=[0, 0, 0.0]),
         radius=grasp_pose_visual_width,
-        material=sapien.render.RenderMaterial(base_color=[0.3, 0.4, 0.8, 0.7])
+        material=sapien.render.RenderMaterial(base_color=[0.3, 0.4, 0.8, 0.7]),
     )
 
     builder.add_box_visual(

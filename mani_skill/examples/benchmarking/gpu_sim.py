@@ -30,39 +30,22 @@ def main(args):
             # enable_shadow=True,
             render_mode=args.render_mode,
             control_mode=args.control_mode,
-            sim_cfg=sim_cfg
+            sim_cfg=sim_cfg,
         )
         if isinstance(env.action_space, gym.spaces.Dict):
             env = FlattenActionSpaceWrapper(env)
         base_env = env.unwrapped
     else:
-        env = gym.make_vec(args.env_id, num_envs=args.num_envs, vectorization_mode="async", vector_kwargs=dict(context="spawn"), obs_mode=args.obs_mode,)
+        env = gym.make_vec(
+            args.env_id,
+            num_envs=args.num_envs,
+            vectorization_mode="async",
+            vector_kwargs=dict(context="spawn"),
+            obs_mode=args.obs_mode,
+        )
         base_env = gym.make(args.env_id, obs_mode=args.obs_mode).unwrapped
-    sensor_settings_str = []
-    for uid, cam in base_env._sensors.items():
-        cfg = cam.cfg
-        sensor_settings_str.append(f"{cfg.width}x{cfg.height}")
-    sensor_settings_str = "_".join(sensor_settings_str)
-    print(
-        "# -------------------------------------------------------------------------- #"
-    )
-    print(
-        f"Benchmarking ManiSkill GPU Simulation with {num_envs} parallel environments"
-    )
-    print(
-        f"env_id={args.env_id}, obs_mode={args.obs_mode}, control_mode={args.control_mode}"
-    )
-    print(
-        f"render_mode={args.render_mode}, sensor_details={sensor_settings_str}, save_video={args.save_video}"
-    )
-    print(
-        f"sim_freq={base_env.sim_freq}, control_freq={base_env.control_freq}"
-    )
-    print(f"observation space: {env.observation_space}")
-    print(f"action space: {base_env.single_action_space}")
-    print(
-        "# -------------------------------------------------------------------------- #"
-    )
+
+    base_env.print_sim_details()
     images = []
     video_nrows = int(np.sqrt(num_envs))
     with torch.inference_mode():
@@ -75,8 +58,7 @@ def main(args):
         with profiler.profile("env.step", total_steps=N, num_envs=num_envs):
             for i in range(N):
                 actions = (
-                    2 * torch.rand(env.action_space.shape, device=base_env.device)
-                    - 1
+                    2 * torch.rand(env.action_space.shape, device=base_env.device) - 1
                 )
                 obs, rew, terminated, truncated, info = env.step(actions)
                 if args.save_video:
@@ -118,7 +100,7 @@ def main(args):
                 num_envs=args.num_envs,
                 control_mode=args.control_mode,
                 sensor_settings=sensor_settings_str,
-                gpu_type=torch.cuda.get_device_name()
+                gpu_type=torch.cuda.get_device_name(),
             ),
         )
     except:
@@ -131,9 +113,17 @@ def parse_args():
     parser.add_argument("-o", "--obs-mode", type=str, default="state")
     parser.add_argument("-c", "--control-mode", type=str, default="pd_joint_delta_pos")
     parser.add_argument("-n", "--num-envs", type=int, default=1024)
-    parser.add_argument("--cpu-sim", action="store_true", help="Whether to use the CPU or GPU simulation")
-    parser.add_argument("--control-freq", type=int, default=None, help="The control frequency to use")
-    parser.add_argument("--sim-freq", type=int, default=None, help="The simulation frequency to use")
+    parser.add_argument(
+        "--cpu-sim",
+        action="store_true",
+        help="Whether to use the CPU or GPU simulation",
+    )
+    parser.add_argument(
+        "--control-freq", type=int, default=None, help="The control frequency to use"
+    )
+    parser.add_argument(
+        "--sim-freq", type=int, default=None, help="The simulation frequency to use"
+    )
     parser.add_argument(
         "--render-mode",
         type=str,

@@ -1,3 +1,5 @@
+"""NOTE: This scene builder class API is a WIP still. Temporarily used for managing a few pre-built scenes"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Dict, List, Union, Tuple

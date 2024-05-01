@@ -1,10 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Sequence, Union
 
-try:
-    import fast_kinematics
-except:
-    pass
+import fast_kinematics
 import numpy as np
 import sapien.physx as physx
 import torch
@@ -23,8 +20,9 @@ from .base_controller import ControllerConfig
 from .pd_joint_pos import PDJointPosController
 
 
-# NOTE(jigu): not necessary to inherit, just for convenience
 class PDEEPosController(PDJointPosController):
+    """The PD EE Position controller. NOTE that on the GPU it is assumed the controlled robot is not a merged articulation and is the same across every sub-scene"""
+
     config: "PDEEPosControllerConfig"
     _target_pose = None
 
@@ -58,9 +56,11 @@ class PDEEPosController(PDJointPosController):
                 cur_link = cur_link.joint.parent_link
             active_ancestor_joints = active_ancestor_joints[::-1]
             self.active_ancestor_joints = active_ancestor_joints
+
             # initially self.active_joint_indices references active joints that are controlled.
+            # we also make the assumption that the active index is the same across all parallel managed joints
             self.active_ancestor_joint_idxs = [
-                x.active_index for x in self.active_ancestor_joints
+                (x.active_index[0]).cpu().item() for x in self.active_ancestor_joints
             ]
             controlled_joints_idx_in_qmask = [
                 self.active_ancestor_joint_idxs.index(idx)

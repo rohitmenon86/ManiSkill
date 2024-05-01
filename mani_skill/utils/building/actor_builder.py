@@ -46,7 +46,8 @@ class ActorBuilder(SAPIENActorBuilder):
 
     def set_allow_overlapping_plane_collisions(self, v: bool):
         """Set whether or not to permit allowing overlapping plane collisions. In general if you are creating an Actor with a plane collision that is parallelized across multiple
-        sub-scenes, you only need one of those collision shapes. If you add multiple, it will cause the simulation to slow down significantly. By default this is set to False"""
+        sub-scenes, you only need one of those collision shapes. If you add multiple, it will cause the simulation to slow down significantly. By default this is set to False
+        """
         self._allow_overlapping_plane_collisions = v
         return self
 
@@ -191,8 +192,8 @@ class ActorBuilder(SAPIENActorBuilder):
         initial_pose_np = common.to_numpy(initial_pose.raw_pose)
 
         entities = []
-        i = 0
-        for scene_idx in self.scene_idxs:
+
+        for i, scene_idx in enumerate(self.scene_idxs):
             sub_scene = self.scene.sub_scenes[scene_idx]
             entity = self.build_entity()
             # prepend scene idx to entity name to indicate which sub-scene it is in
@@ -204,7 +205,6 @@ class ActorBuilder(SAPIENActorBuilder):
                 entity.pose = to_sapien_pose(initial_pose_np[i])
             sub_scene.add_entity(entity)
             entities.append(entity)
-            i += 1
         actor = Actor.create_from_entities(entities, self.scene, self.scene_idxs)
 
         # if it is a static body type and this is a GPU sim but we are given a single initial pose, we repeat it for the purposes of observations
@@ -213,8 +213,10 @@ class ActorBuilder(SAPIENActorBuilder):
             and initial_pose_b == 1
             and physx.is_gpu_enabled()
         ):
-            actor.inital_pose = Pose.create(initial_pose.raw_pose.repeat(num_actors, 1))
+            actor.initial_pose = Pose.create(
+                initial_pose.raw_pose.repeat(num_actors, 1)
+            )
         else:
-            actor.inital_pose = initial_pose
+            actor.initial_pose = initial_pose
         self.scene.actors[self.name] = actor
         return actor

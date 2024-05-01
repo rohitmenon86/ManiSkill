@@ -6,7 +6,7 @@ Building a custom task in ManiSkill is comprised of the following core component
 
 1. [Setting up the Task Class](#setting-up-the-task-class)
 2. [Loading (Robots, Assets, Sensors, etc.)](#loading) (done once)
-3. [Episode initialization / Randomization](#episode-initialization-randomization) (done every env.reset)
+3. [Episode initialization / Randomization](#episode-initialization--randomization) (done every env.reset)
 4. [Success/Failure Condition](#successfailure-conditions) (done every env.step)
 5. [Extra Observations](#extra-observations) (done every env.step)
 6. [(Optional) Dense Reward Function](#optional-dense-reward-function) (done every env.step)
@@ -24,13 +24,13 @@ and `env.step` follows below:
 
 This tutorial will take you through most of the important yellow modules in the figures above that should be implemented to build a task.
 
-To follow this tutorial easily, we recommend reading this alongside reading the [annotated code for the PushCube task](https://github.com/haosulab/ManiSkill2/blob/dev/mani_skill/envs/tasks/push_cube.py) which describes the purpose of nearly every line of code. The [advanced features page](./custom_tasks_advanced.md) covers additional topics to do more advanced simulation and optimization such as dynamic GPU memory configuration, heterogenous object simulation, and more. 
+To follow this tutorial easily, we recommend reading this alongside reading the [annotated code for the PushCube task](https://github.com/haosulab/ManiSkill/blob/main/mani_skill/envs/tasks/push_cube.py) which describes the purpose of nearly every line of code. The [advanced features page](./custom_tasks_advanced.md) covers additional topics to do more advanced simulation and optimization such as dynamic GPU memory configuration, heterogenous object simulation, and more. 
 
-If you want to skip the tutorial and start from a template you can use the [PushCube task](https://github.com/haosulab/ManiSkill2/blob/dev/mani_skill/envs/tasks/push_cube.py) as a template, the [annotated template](https://github.com/haosulab/ManiSkill2/blob/dev/mani_skill/envs/template.py), or the [bare minimum template](https://github.com/haosulab/ManiSkill2/blob/dev/mani_skill/envs/minimal_template.py).
+If you want to skip the tutorial and start from a template you can use the [PushCube task](https://github.com/haosulab/ManiSkill/blob/main/mani_skill/envs/tasks/push_cube.py) as a template, the [annotated template](https://github.com/haosulab/ManiSkill/blob/main/mani_skill/envs/template.py), or the [bare minimum template](https://github.com/haosulab/ManiSkill/blob/main/mani_skill/envs/minimal_template.py).
 
 <!-- This tutorial will first cover each of the core components, and then showcase 3 different tutorial tasks ([PushCube](#example-task-1-push-cube), [PickSingleYCB](#example-task-2-pick-single-ycb), [OpenCabinetDrawer](#example-task-3-open-cabinet-drawer)) that showcase how to use most of the features in ManiSkill. -->
 
-If you have any questions or issues, feel free to ask in our [discord](https://discord.gg/vJb6wUmWXA) or on our [github](https://github.com/haosulab/ManiSkill2/issues)
+If you have any questions or issues, feel free to ask in our [discord](https://discord.gg/vJb6wUmWXA) or on our [github](https://github.com/haosulab/ManiSkill/issues)
 
 ## Setting up the Task Class
 
@@ -49,7 +49,7 @@ class PushCubeEnv(BaseEnv):
 ```
 ## Loading
 
-At the start of any task, you must load in all objects (robots, assets, articulations, lighting etc.) into each parallel environment, also known as a sub-scene. This is also known as **reconfiguration** and generally only ever occurs once. Loading these objects is done in the `_load_scene` function of your custom task class. The objective is to simply load objects in, and nothing else. For GPU simulation at this stage you cannot change object states (like pose, qpos), only initial poses can be modified. Changing/randomizing states is done in the section on [episode initialization / randomization](#episode-initialization-randomization).
+At the start of any task, you must load in all objects (robots, assets, articulations, lighting etc.) into each parallel environment, also known as a sub-scene. This is also known as **reconfiguration** and generally only ever occurs once. Loading these objects is done in the `_load_scene` function of your custom task class. The objective is to simply load objects in, and nothing else. For GPU simulation at this stage you cannot change object states (like pose, qpos), only initial poses can be modified. Changing/randomizing states is done in the section on [episode initialization / randomization](#episode-initialization--randomization).
 
 Building objects in ManiSkill is nearly the exact same as it is in SAPIEN. You create an `ActorBuilder` via `self._scene.create_actor_builder` and via the actor builder add visual and collision shapes. Visual shapes only affect visual rendering processes while collision shapes affect the physical simulation. ManiSkill further will create the actor for you in every sub-scene (unless you use [scene-masks/scene-idxs](./custom_tasks_advanced.md#scene-masks), a more advanced feature).
 
@@ -73,8 +73,7 @@ class PushCubeEnv(BaseEnv):
 
 Initializing these robots occurs in the initialization / randomization section covered later. With this setup you can later access agent data via `self.agent` and the specific articulation data of the robot via `self.agent.robot`. For multi-robot setups you can access each agent via `self.agent.agents`.
 
-To create your own custom robots/agents, we will provide a tutorial on the basics of modelling a robot for simulation and use in ManiSkill in the near future. For now you can look at the code for Panda at [mani_skill/agents/robots/panda/panda.py](https://github.com/haosulab/ManiSkill2/blob/dev/mani_skill/agents/robots/panda/panda.py)
-<!-- TODO (stao): link custom robots docs later -->
+To create your own custom robots/agents, see the [custom robots tutorial](./custom_robots.md).
 
 #### Building Actors
 
@@ -159,7 +158,7 @@ In general one use case of setting a positive `reconfiguration_freq` value is fo
 
 ## Episode Initialization / Randomization
 
-Task initialization and randomization is handled in the `_initalize_actors` function and is called whenever `env.reset` is called. The objective here is to set the initial states of objects, including the robot. As the task ideally should be simulatable on the GPU, batched code is unavoidable. Note that furthermore, by default everything in ManiSkill tries to stay batched, even if there is only one element. Finally, like `_load_scene` the options argument is also passed down here if needed.
+Task initialization and randomization is handled in the `_initialize_episode` function and is called whenever `env.reset` is called. The objective here is to set the initial states of objects, including the robot. As the task ideally should be simulatable on the GPU, batched code is unavoidable. Note that furthermore, by default everything in ManiSkill tries to stay batched, even if there is only one element. Finally, like `_load_scene` the options argument is also passed down here if needed.
 
 An example from part of the PushCube task
 
@@ -168,7 +167,7 @@ from mani_skill.utils.structs.pose import Pose
 import torch
 class PushCubeEnv(BaseEnv):
     # ...
-    def _initialize_actors(self, env_idx: torch.Tensor, options: dict):
+    def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
         # use the torch.device context manager to automatically create tensors on CPU or CUDA depending on self.device, the device the environment runs on
         with torch.device(self.device):
             b = len(env_idx)
@@ -184,7 +183,7 @@ class PushCubeEnv(BaseEnv):
             self.obj.set_pose(obj_pose)
 ```
 
-An `env_idx` is one of the arguments to this function, and is a list of environment IDs that need initialization. This is given as ManiSkill supports **partial resets**, where at each timestep potentially only a subset of parallel environments will undergo a reset, which calls `_initialize_actors` here. 
+An `env_idx` is one of the arguments to this function, and is a list of environment IDs that need initialization. This is given as ManiSkill supports **partial resets**, where at each timestep potentially only a subset of parallel environments will undergo a reset, which calls `_initialize_episode` here. 
 
 Since a scene builder is used, to initialize objects to their original states, we simply call `self.table_scene.initialize(env_idx)`, a function all scene builders implement.
 
@@ -314,7 +313,7 @@ Dense reward functions are not required and can be skipped. If not implemented t
 
 ## (Optional) Setting up Cameras/Sensors for Observations and Recording
 
-If you want your task to be able to return information from sensors like cameras as part of observations, you need to implement a `_sensor_configs` property which should return a list of `BaseSensorConfig` objects. At the moment the only sensor implemented are Cameras. In the future other forms of sensors will be added. Adding a `_human_render_camera_configs` property will add cameras to be used to take pictures for the `"rgb_array"` render mode, which is usually used just for saving videos to look at, but are never used as part of the actual environment observations.
+If you want your task to be able to return information from sensors like cameras as part of observations, you need to implement a `_default_sensor_configs` property which should return a list of `BaseSensorConfig` objects. At the moment the only sensor implemented are Cameras. In the future other forms of sensors will be added. Adding a `_default_human_render_camera_configs` property will add cameras to be used to take pictures for the `"rgb_array"` render mode, which is usually used just for saving videos to look at, but are never used as part of the actual environment observations.
 
 Below shows how to use `CameraConfig` to define sensors, you define its position, quaternion, width, height, fov, near, and far attributes. 
 
@@ -323,7 +322,7 @@ from mani_skill.sensors.camera import CameraConfig
 class PushCubeEnv(BaseEnv):
     # ...
     @property
-    def _sensor_configs(self):
+    def _default_sensor_configs(self):
         # registers one 128x128 camera looking at the robot, cube, and target
         # a smaller sized camera will be lower quality, but render faster
         pose = sapien_utils.look_at(eye=[0.3, 0, 0.6], target=[-0.1, 0, 0.1])
@@ -331,7 +330,7 @@ class PushCubeEnv(BaseEnv):
             CameraConfig("base_camera", pose=pose, width=128, height=128, fov=np.pi / 2, near=0.01, far=100)
         ]
     @property
-    def _human_render_camera_configs(self):
+    def _default_human_render_camera_configs(self):
         # registers a more high-definition (512x512) camera used just for rendering when render_mode="rgb_array" or calling env.render_rgb_array()
         pose = sapien_utils.look_at([0.6, 0.7, 0.6], [0.0, 0.0, 0.35])
         return CameraConfig("render_camera", pose=pose, width=512, height=512, fov=1, near=0.01, far=100)
@@ -357,5 +356,5 @@ Alternatively via the GUI which can be opened by doing a while loop while runnin
 :::
 
 :::{tip}
-It's recommended to setup the sensor cameras via `_sensor_configs` in such a way so that it looks at the important objects and avoids looking at anything too far away. The reason is the blank background has infinite depth and in visual observations it's marked as a 0. Objects too far away (like the far away floor tiles) will yield very high depth values which may be problematic for machine learning workflows
+It's recommended to setup the sensor cameras via `_default_sensor_configs` in such a way so that it looks at the important objects and avoids looking at anything too far away. The reason is the blank background has infinite depth and in visual observations it's marked as a 0. Objects too far away (like the far away floor tiles) will yield very high depth values which may be problematic for machine learning workflows
 :::

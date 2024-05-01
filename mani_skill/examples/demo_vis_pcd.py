@@ -7,9 +7,27 @@ from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.sensors.camera import CameraConfig
 import trimesh
 import trimesh.scene
+
+
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("-e", "--env-id", type=str, default="PushCube-v1", help="The environment ID of the task you want to simulate")
+    parser.add_argument(
+        "-e",
+        "--env-id",
+        type=str,
+        default="PushCube-v1",
+        help="The environment ID of the task you want to simulate",
+    )
+    parser.add_argument(
+        "--cam-width",
+        type=int,
+        help="Override the width of every camera in the environment",
+    )
+    parser.add_argument(
+        "--cam-height",
+        type=int,
+        help="Override the height of every camera in the environment",
+    )
     parser.add_argument(
         "-s",
         "--seed",
@@ -23,10 +41,16 @@ def parse_args(args=None):
 def main(args):
     if args.seed is not None:
         np.random.seed(args.seed)
+    sensor_configs = dict()
+    if args.cam_width:
+        sensor_configs["width"] = args.cam_width
+    if args.cam_height:
+        sensor_configs["height"] = args.cam_height
     env: BaseEnv = gym.make(
         args.env_id,
         obs_mode="pointcloud",
-        reward_mode="sparse",
+        reward_mode="none",
+        sensor_configs=sensor_configs,
     )
 
     obs, _ = env.reset(seed=args.seed)
@@ -37,17 +61,19 @@ def main(args):
         colors = obs["pointcloud"]["rgb"]
         pcd = trimesh.points.PointCloud(xyz, colors)
 
-
         # view from first camera
-        for uid, cfg in env.unwrapped._all_sensor_configs_parsed.items():
+        for uid, cfg in env.unwrapped._sensor_configs.items():
             if isinstance(cfg, CameraConfig):
                 cam2world = obs["sensor_param"][uid]["cam2world_gl"]
-                camera = trimesh.scene.Camera(uid, (1024, 1024), fov=(np.rad2deg(cfg.fov), np.rad2deg(cfg.fov)))
+                camera = trimesh.scene.Camera(
+                    uid, (1024, 1024), fov=(np.rad2deg(cfg.fov), np.rad2deg(cfg.fov))
+                )
             break
         trimesh.Scene([pcd], camera=camera, camera_transform=cam2world).show()
         if terminated or truncated:
             break
     env.close()
+
 
 if __name__ == "__main__":
     main(parse_args())
