@@ -1,7 +1,10 @@
 from dataclasses import dataclass
 from typing import List, Sequence, Union
 
-import fast_kinematics
+try:
+    import fast_kinematics
+except:
+    pass
 import numpy as np
 import sapien.physx as physx
 import torch
