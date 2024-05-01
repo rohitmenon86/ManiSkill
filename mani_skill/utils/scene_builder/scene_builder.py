@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Dict, List, Union, Tuple
+from functools import cached_property
 
 import torch
 import numpy as np
@@ -55,7 +56,7 @@ class SceneBuilder:
         """
         raise NotImplementedError()
 
-    def sample_build_config_idxs(self):
+    def sample_build_config_idxs(self) -> List[int]:
         """
         Sample idxs of build configs for easy scene randomization. Should be changed to fit shape of self.build_configs.
         """
@@ -63,13 +64,21 @@ class SceneBuilder:
             low=0, high=len(self.build_configs), size=(self.env.num_envs,)
         ).tolist()
 
-    def sample_init_config_idxs(self):
+    def sample_init_config_idxs(self) -> List[int]:
         """
         Sample idxs of init configs for easy scene randomization. Should be changed to fit shape of self.init_configs.
         """
         return torch.randint(
             low=0, high=len(self.init_configs), size=(self.env.num_envs,)
         ).tolist()
+
+    @cached_property
+    def build_config_names_to_idxs(self) -> Dict[str, int]:
+        return dict((v, i) for i, v in enumerate(self.build_configs))
+
+    @cached_property
+    def init_config_names_to_idxs(self) -> Dict[str, int]:
+        return dict((v, i) for i, v in enumerate(self.init_configs))
 
     @property
     def scene(self):

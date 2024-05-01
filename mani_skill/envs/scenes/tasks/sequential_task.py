@@ -1,4 +1,4 @@
-from collections import OrderedDict
+from collections import defaultdict
 from typing import Any, Dict, List, Tuple, Union
 
 import numpy as np
@@ -61,7 +61,6 @@ class SequentialTaskEnv(SceneManipulationEnv):
     agent: Fetch
 
     # TODO (arth): add locomotion, open fridge, close fridge
-    # TODO (arth) maybe?: clean this up, e.g. configs per subtask **type** or smth
     EE_REST_POS_WRT_BASE = (0.5, 0, 1.25)
     pick_cfg = PickSubtaskConfig(
         horizon=200,
@@ -83,67 +82,42 @@ class SequentialTaskEnv(SceneManipulationEnv):
         navigate=navigate_cfg,
     )
 
-    @property
-    def _default_sim_cfg(self):
-        return SimConfig(
-            spacing=50,
-            gpu_memory_cfg=GPUMemoryConfig(
-                found_lost_pairs_capacity=2**25,
-                max_rigid_patch_count=2**19,
-                max_rigid_contact_count=2**21,
-            ),
-        )
-
     def __init__(
         self,
         *args,
         robot_uids="fetch",
-        robot_init_qpos_noise=0.02,
         task_plans: List[TaskPlan] = [],
         **kwargs,
     ):
+        assert all_equal(
+            [len(plan.subtasks) for plan in task_plans]
+        ), "All parallel task plans must be the same length"
+        assert all(
+            [
+                all_same_type(parallel_subtasks)
+                for parallel_subtasks in zip(*[plan.subtasks for plan in task_plans])
+            ]
+        ), "All parallel task plans must have same subtask types in same order"
 
-        if "num_envs" in kwargs:
-            assert (
-                len(task_plans) == kwargs["num_envs"]
-            ), f"GPU sim requires equal number of task_plans ({len(task_plans)}) and parallel_envs ({kwargs['num_envs']})"
-        else:
-            assert (
-                len(task_plans) == 1
-            ), f"CPU sim only supports one task plan, not {(len(task_plans))}"
-
-        self.base_task_plans = task_plans
-        self.robot_init_qpos_noise = robot_init_qpos_noise
-        # TODO (arth): setting subtask.obj causes a pickling error
-        #   this is (imo) an ugly workaround so i'll try to figure smth else out
-        self.subtask_objs: List[Actor] = []
-        self.subtask_goals: List[Actor] = []
+        self.base_task_plans: Dict[str, List[TaskPlan]] = defaultdict(list)
+        for tp in task_plans:
+            self.base_task_plans[tp.build_config_name].append(tp)
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
     # -------------------------------------------------------------------------------------------------
     # PROCESS TASKS
     # -------------------------------------------------------------------------------------------------
-    # NOTE (arth): since M3 only has finite defined tasks, we hardcode task init.
-    # TODO (arth): maybe make this automatic with more general class structure? not sure yet
-    # -------------------------------------------------------------------------------------------------
 
-    def process_task_plan(self):
+    def process_task_plan(self, sampled_subtask_lists: List[List[Subtask]]):
 
-        assert all_equal(
-            [len(plan) for plan in self.base_task_plans]
-        ), "All parallel task plans must be the same length"
-        assert all(
-            [
-                all_same_type(parallel_subtasks)
-                for parallel_subtasks in zip(*self.base_task_plans)
-            ]
-        ), "All parallel task plans must have same subtask types in same order"
+        self.subtask_objs: List[Actor] = []
+        self.subtask_goals: List[Actor] = []
 
         # build new merged task_plan and merge actors of parallel task plants
-        self.task_plan = []
+        self.task_plan: List[Subtask] = []
         last_subtask0 = None
-        for subtask_num, parallel_subtasks in enumerate(zip(*self.base_task_plans)):
-            subtask0 = parallel_subtasks[0]
+        for subtask_num, parallel_subtasks in enumerate(zip(*sampled_subtask_lists)):
+            subtask0: Subtask = parallel_subtasks[0]
 
             if isinstance(subtask0, PickSubtask):
                 parallel_subtasks: List[PickSubtask]
@@ -166,21 +140,20 @@ class SequentialTaskEnv(SceneManipulationEnv):
                         parallel_subtasks, name=merged_obj_name
                     )
                 )
-                # NOTE (arth): poses can't be set before gpu set up, which is done after scene loaded
-                #       so, need to wait until _after_reconfigure is called to set subtask goal poses
+
+                goal_pos = [list(subtask.goal_pos) for subtask in parallel_subtasks]
                 self.subtask_goals.append(
                     self._make_goal(
                         radius=self.place_cfg.obj_goal_thresh,
                         name=merged_goal_name,
+                        pos=goal_pos,
                     )
                 )
 
                 self.task_plan.append(
                     PlaceSubtask(
                         obj_id=merged_obj_name,
-                        goal_pos=[
-                            list(subtask.goal_pos) for subtask in parallel_subtasks
-                        ],
+                        goal_pos=goal_pos,
                     )
                 )
 
@@ -202,6 +175,18 @@ class SequentialTaskEnv(SceneManipulationEnv):
 
             last_subtask0 = subtask0
 
+        # add navigation goals for each Navigate Subtask depending on following subtask
+        last_subtask = None
+        for i, (subtask_obj, subtask_goal, subtask) in enumerate(
+            zip(self.subtask_objs, self.subtask_goals, self.task_plan)
+        ):
+            if isinstance(last_subtask, NavigateSubtask):
+                if isinstance(subtask, PickSubtask):
+                    self.subtask_goals[i - 1] = subtask_obj
+                elif isinstance(subtask, PlaceSubtask):
+                    self.subtask_goals[i - 1] = subtask_goal
+            last_subtask = subtask
+
         self.task_horizons = torch.tensor(
             [self.task_cfgs[subtask.type].horizon for subtask in self.task_plan],
             device=self.device,
@@ -217,9 +202,8 @@ class SequentialTaskEnv(SceneManipulationEnv):
         # self.max_episode_steps = torch.sum(self.task_horizons)
 
     def _get_actor_entity(self, actor_id: str, env_num: int):
-        return self.scene_builder.movable_objects[actor_id]._objs[
-            self.scene_builder.obj_to_env_idx[actor_id].index(env_num)
-        ]
+        actor = self.scene_builder.movable_objects[actor_id]
+        return actor._objs[actor._scene_idxs.tolist().index(env_num)]
 
     def _create_merged_actor_from_subtasks(
         self,
@@ -235,7 +219,7 @@ class SequentialTaskEnv(SceneManipulationEnv):
             scene_idxs=torch.arange(self.num_envs, dtype=int),
         )
         if name is not None:
-            merged_obj.name = (name,)
+            merged_obj.name = name
         return merged_obj
 
     def _make_goal(
@@ -262,9 +246,9 @@ class SequentialTaskEnv(SceneManipulationEnv):
         self._hidden_objects.append(goal)
         return goal
 
-    def _compute_ee_rest_world_pose(self):
-        with torch.device(self.device):
-            return self.agent.base_link.pose * self.ee_rest_pos_wrt_base
+    @property
+    def ee_rest_world_pose(self):
+        return self.agent.base_link.pose * self.ee_rest_pos_wrt_base
 
     # -------------------------------------------------------------------------------------------------
 
@@ -273,11 +257,18 @@ class SequentialTaskEnv(SceneManipulationEnv):
     # -------------------------------------------------------------------------------------------------
 
     def _load_scene(self, options):
+        self.build_config_idx_to_task_plans: Dict[int, List[TaskPlan]] = dict()
+        for bc in self.base_task_plans.keys():
+            self.build_config_idx_to_task_plans[
+                self.scene_builder.build_config_names_to_idxs[bc]
+            ] = self.base_task_plans[bc]
+        self.build_config_idxs = sorted(
+            list(self.build_config_idx_to_task_plans.keys())
+        )
         super()._load_scene(options)
         self.ee_rest_pos_wrt_base = Pose.create_from_pq(
             p=self.EE_REST_POS_WRT_BASE, device=self.device
         )
-        self.process_task_plan()
         self.subtask_pointer = torch.zeros(
             self.num_envs, device=self.device, dtype=torch.long
         )
@@ -289,39 +280,35 @@ class SequentialTaskEnv(SceneManipulationEnv):
             name="ee_rest_goal",
         )
 
-    def _after_reconfigure(self, options):
-        with torch.device(self.device):
-            last_subtask = None
-            for i, (subtask_obj, subtask_goal, subtask) in enumerate(
-                zip(self.subtask_objs, self.subtask_goals, self.task_plan)
-            ):
-                if isinstance(subtask, PlaceSubtask):
-                    subtask_goal.set_pose(Pose.create_from_pq(p=subtask.goal_pos))
-                if isinstance(last_subtask, NavigateSubtask):
-                    if isinstance(subtask, PickSubtask):
-                        self.subtask_goals[i - 1] = subtask_obj
-                    elif isinstance(subtask, PlaceSubtask):
-                        self.subtask_goals[i - 1] = subtask_goal
-                last_subtask = subtask
-
     def _initialize_episode(self, env_idx: torch.Tensor, options):
+        low = torch.zeros(len(self.build_config_idxs))
+        high = torch.tensor(
+            [
+                len(self.build_config_idx_to_task_plans[bci])
+                for bci in self.build_config_idxs
+            ]
+        )
+        size = (len(self.build_config_idxs),)
+        task_plan_idxs: List[int] = (
+            (torch.randint(2**63 - 1, size=size) % (high - low) + low).int().tolist()
+        )
+        sampled_task_plans = [
+            self.build_config_idx_to_task_plans[bci][tpi]
+            for bci, tpi in zip(self.build_config_idxs, task_plan_idxs)
+        ]
+        self.init_config_idxs = [
+            self.scene_builder.init_config_names_to_idxs[tp.init_config_name]
+            for tp in sampled_task_plans
+        ]
         super()._initialize_episode(env_idx, options)
-        # TODO (arth): currently there's a bug where prev contacts/etc will maintain themselves somehow
-        #       maybe bug will be fixed alter, but in meantime just step scene to get rid of old contacts
-        # if not sapien.physx.is_gpu_enabled():
-        self.agent.controller.reset()
-        self._scene.step()
+        self.process_task_plan(
+            sampled_subtask_lists=[tp.subtasks for tp in sampled_task_plans]
+        )
 
         self.subtask_pointer[env_idx] = 0
         self.subtask_steps_left[env_idx] = self.task_cfgs[
             self.task_plan[0].type
         ].horizon
-        self.ee_rest_world_pose = self._compute_ee_rest_world_pose()
-
-        if physx.is_gpu_enabled():
-            self._scene._gpu_apply_all()
-            self._scene.px.gpu_update_articulation_kinematics()
-            self._scene._gpu_fetch_all()
 
     # -------------------------------------------------------------------------------------------------
 
@@ -330,7 +317,6 @@ class SequentialTaskEnv(SceneManipulationEnv):
     # -------------------------------------------------------------------------------------------------
 
     def evaluate(self):
-        self.ee_rest_world_pose = self._compute_ee_rest_world_pose()
         subtask_success, is_grasped = self._subtask_check_success()
 
         self.subtask_pointer[subtask_success] += 1
@@ -358,11 +344,6 @@ class SequentialTaskEnv(SceneManipulationEnv):
             subtasks_steps_left=self.subtask_steps_left,
         )
 
-    # NOTE (arth): for now group by specific subtask (good enough for training)
-    # TODO (arth): maybe group by relevant commonalities for batched computation to speed up?
-    #       e.g. pick and place both use is_grasped computations, and concurrent envs might be using the
-    #       same objs for their current subtasks, etc
-    #       not sure yet, TBD
     def _subtask_check_success(self):
         subtask_success = torch.zeros(self.num_envs, device=self.device, dtype=bool)
         is_grasped = torch.zeros(self.num_envs, device=self.device, dtype=bool)
@@ -493,25 +474,12 @@ class SequentialTaskEnv(SceneManipulationEnv):
     # -------------------------------------------------------------------------------------------------
     # OBS AND INFO
     # -------------------------------------------------------------------------------------------------
-    # NOTE (arth):
-    #       1. fetch hacked base needs x, y, z_rot qpos and qvel masked
-    #       2. all tasks except locomotion use
-    #           - depth images (not implemented yet)
-    #           - arm joints
-    #           - ee pos in base frame
-    #           - gripper holding anything
-    #           - target pos in base frame
-    #               - e.g. pick target pos, place target pos, fridge handle pos, etc
-    #       3. locomotion (not implemented yet)
-    #           - only uses depth image and goal pos
-    # -------------------------------------------------------------------------------------------------
 
     def _get_obs_agent(self):
         agent_state = super()._get_obs_agent()
         agent_state["qpos"][..., :3] = 0
         return agent_state
 
-    # TODO (arth): maybe find better way of doing thing
     # NOTE (arth): for now, define keys that will always be added to obs. leave it to
     #       wrappers or task-specific envs to mask out unnecessary vals
     #       - subtasks that don't need that obs will set some default value
@@ -536,7 +504,6 @@ class SequentialTaskEnv(SceneManipulationEnv):
             torch.clip(self.subtask_pointer, max=len(self.task_plan) - 1)
         )
         for subtask_num in currently_running_subtasks:
-            subtask: Subtask = self.task_plan[subtask_num]
             env_idx = torch.where(self.subtask_pointer == subtask_num)[0]
             if self.subtask_objs[subtask_num] is not None:
                 obj_pose_wrt_base[env_idx] = vectorize_pose(
@@ -551,7 +518,7 @@ class SequentialTaskEnv(SceneManipulationEnv):
         #       - is_grasped    :   part of success criteria (or set default)
         is_grasped = info["is_grasped"]
 
-        return OrderedDict(
+        return dict(
             tcp_pose_wrt_base=tcp_pose_wrt_base,
             obj_pose_wrt_base=obj_pose_wrt_base,
             goal_pos_wrt_base=goal_pos_wrt_base,
@@ -581,8 +548,7 @@ class SequentialTaskEnv(SceneManipulationEnv):
     # -------------------------------------------------------------------------------------------------
     # CAMERAS, SENSORS, AND RENDERING
     # -------------------------------------------------------------------------------------------------
-    # NOTE (arth): also included the old "cameras" mode from MS2 since the robot render camera
-    #       can get stuck in walls
+    # NOTE (arth): also included the old "cameras" mode from MS2 since HAB renders this way
     # -------------------------------------------------------------------------------------------------
 
     @property

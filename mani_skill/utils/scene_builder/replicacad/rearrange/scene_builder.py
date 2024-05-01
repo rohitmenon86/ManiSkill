@@ -12,6 +12,7 @@ from pathlib import Path
 from collections import defaultdict
 import copy
 import itertools
+from functools import cached_property
 
 import numpy as np
 import sapien
@@ -84,6 +85,7 @@ class ReplicaCADRearrangeSceneBuilder(ReplicaCADSceneBuilder):
 
         # keep track of which build config idxs are used for sampling
         self.used_build_config_idxs = set()
+        bc_to_idx = dict((v, i) for i, v in enumerate(self.build_configs))
         for rc in self._rearrange_configs:
             with open(
                 osp.join(
@@ -95,7 +97,7 @@ class ReplicaCADRearrangeSceneBuilder(ReplicaCADSceneBuilder):
             ) as f:
                 episode_json = json.load(f)
             self.used_build_config_idxs.add(
-                self.build_configs.index(Path(episode_json["scene_id"]).name)
+                bc_to_idx[Path(episode_json["scene_id"]).name]
             )
 
         self.before_hide_collision_groups: Dict[str, List[int]] = dict()
@@ -104,7 +106,9 @@ class ReplicaCADRearrangeSceneBuilder(ReplicaCADSceneBuilder):
         assert all(
             [bci in self.used_build_config_idxs for bci in build_config_idxs]
         ), f"got one or more unused build_config_idxs in {build_config_idxs}; This RCAD Rearrange task only uses the following build_config_idxs: {self.used_build_config_idxs}"
-        assert len(build_config_idxs) == self.env.num_envs
+        assert (
+            len(build_config_idxs) == self.env.num_envs
+        ), f"Got {len(build_config_idxs)} build_config_idxs but only have {self.env.num_envs} envs"
 
         # the build_config_idxs are idxs for the RCAD build configs
         # super().build builds the base RCAD scenes (including static objects)
@@ -123,9 +127,9 @@ class ReplicaCADRearrangeSceneBuilder(ReplicaCADSceneBuilder):
         world_transform = sapien.Pose(q=q).inv()
         obj_transform = sapien.Pose(q=q, p=[0, 0, 0.01])
 
-        # rcad_to_rearrange_configs: which rearrange episode configs use each rcad config
+        # self.rcad_to_rearrange_configs: which rearrange episode configs use each rcad config
         # default_object_poses: default poses for ycb objects from each rearrange episode config
-        rcad_to_rearrange_configs: Dict[str, List[str]] = defaultdict(list)
+        self.rcad_to_rearrange_configs: Dict[str, List[str]] = defaultdict(list)
         default_object_poses: Dict[str, Dict[str, List[sapien.Pose]]] = dict()
         for rc in self._rearrange_configs:
             objects: Dict[str, List[sapien.Pose]] = defaultdict(list)
@@ -146,14 +150,16 @@ class ReplicaCADRearrangeSceneBuilder(ReplicaCADSceneBuilder):
                     obj_transform * sapien.Pose(transformation) * world_transform
                 )
 
-            rcad_to_rearrange_configs[Path(episode_json["scene_id"]).name].append(rc)
+            self.rcad_to_rearrange_configs[Path(episode_json["scene_id"]).name].append(
+                rc
+            )
             default_object_poses[rc] = objects
 
         # create init config
         self.init_configs: List[List[Dict[str, List[sapien.Pose]]]] = [
             [
                 default_object_poses[rc]
-                for rc in rcad_to_rearrange_configs[self.build_configs[bci]]
+                for rc in self.rcad_to_rearrange_configs[self.build_configs[bci]]
             ]
             for bci in build_config_idxs
         ]
@@ -164,9 +170,9 @@ class ReplicaCADRearrangeSceneBuilder(ReplicaCADSceneBuilder):
         # when initializing, we set poses according to the sampled init configs,
         # and we hide any unused instances of YCB objects
         rcad_config_to_num_ycb_objs_to_build: Dict[str, Dict[str, int]] = dict()
-        for rcad_config in rcad_to_rearrange_configs.keys():
+        for rcad_config in self.rcad_to_rearrange_configs.keys():
             obj_ids = set()
-            for rearrange_config in rcad_to_rearrange_configs[rcad_config]:
+            for rearrange_config in self.rcad_to_rearrange_configs[rcad_config]:
                 for obj_id in default_object_poses[rearrange_config].keys():
                     obj_ids.add(obj_id)
 
@@ -175,7 +181,9 @@ class ReplicaCADRearrangeSceneBuilder(ReplicaCADSceneBuilder):
                 num_ycb_objs_to_build[obj_id] = max(
                     [
                         len(default_object_poses[rearrange_config][obj_id])
-                        for rearrange_config in rcad_to_rearrange_configs[rcad_config]
+                        for rearrange_config in self.rcad_to_rearrange_configs[
+                            rcad_config
+                        ]
                     ]
                 )
 
@@ -183,27 +191,27 @@ class ReplicaCADRearrangeSceneBuilder(ReplicaCADSceneBuilder):
 
         # save num init configs per build config for init config sampling
         self.num_init_configs_per_build_config = [
-            len(rcad_to_rearrange_configs[self.build_configs[bci]])
+            len(self.rcad_to_rearrange_configs[self.build_configs[bci]])
             for bci in build_config_idxs
         ]
 
         # find max number of each ycb obj needed to support all init configs in each parallel env
         self.ycb_objs_per_env = []
-        for env_idx, bci in enumerate(build_config_idxs):
+        for env_num, bci in enumerate(build_config_idxs):
             rcad_config = self.build_configs[bci]
             num_ycb_objs_to_build = rcad_config_to_num_ycb_objs_to_build[rcad_config]
 
             ycb_objs = defaultdict(list)
             for actor_id, num_objs in num_ycb_objs_to_build.items():
                 for no in range(num_objs):
-                    obj_instance_name = f"env-{env_idx}_{actor_id}-{no}"
+                    obj_instance_name = f"env-{env_num}_{actor_id}-{no}"
                     builder, _ = build_actor_ycb(
                         actor_id,
                         self.scene,
                         name=obj_instance_name,
                         return_builder=True,
                     )
-                    builder.set_scene_idxs([env_idx])
+                    builder.set_scene_idxs([env_num])
                     actor = builder.build(name=obj_instance_name)
 
                     ycb_objs[actor_id].append(actor)
@@ -220,7 +228,6 @@ class ReplicaCADRearrangeSceneBuilder(ReplicaCADSceneBuilder):
         # initialize base scenes
         super().initialize(env_idx)
 
-        print(init_config_idxs)
         # get sampled init configs
         sampled_init_configs = [
             env_init_configs[idx]
@@ -277,3 +284,13 @@ class ReplicaCADRearrangeSceneBuilder(ReplicaCADSceneBuilder):
                     cs.set_collision_groups(cg)
 
         actor.set_pose(pose)
+
+    @cached_property
+    def init_config_names_to_idxs(self) -> int:
+
+        _init_config_names_to_idx = dict()
+        for rcad_config, rearrange_configs in self.rcad_to_rearrange_configs.items():
+            for i, rc in enumerate(rearrange_configs):
+                _init_config_names_to_idx[rc] = i
+
+        return _init_config_names_to_idx

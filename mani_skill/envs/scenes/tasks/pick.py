@@ -77,8 +77,8 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
 
         # NOTE (arth): task plan length and order checking left to SequentialTaskEnv
         tp0 = task_plans[0]
-        assert len(tp0) == 1 and isinstance(
-            tp0[0], PickSubtask
+        assert len(tp0.subtasks) == 1 and isinstance(
+            tp0.subtasks[0], PickSubtask
         ), "Task plans for Pick training must be one PickSubtask long"
 
         # randomization vals
@@ -109,155 +109,30 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
     # INIT RANDOMIZATION
     # -------------------------------------------------------------------------------------------------
     # TODO (arth): maybe check that obj won't fall when noise is added
-    # vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-
-    def _get_navigable_spawn_positions_with_rots_and_dists(
-        self, navigable_positions, center_x, center_y
-    ):
-        # NOTE (arth): this is all unbatched, should be called wtih DEFAULT obj spawn pos
-        center = torch.tensor([center_x, center_y])
-        pts = torch.tensor(navigable_positions)
-        pts_wrt_center = pts - center
-
-        dists = torch.norm(pts_wrt_center, dim=1)
-        in_circle = dists <= self.spawn_loc_radius
-        pts, pts_wrt_center, dists = (
-            pts[in_circle],
-            pts_wrt_center[in_circle],
-            dists[in_circle],
-        )
-
-        rots = (
-            torch.sign(pts_wrt_center[:, 1])
-            * torch.arccos(pts_wrt_center[:, 0] / dists)
-            + torch.pi
-        )
-        rots %= 2 * torch.pi
-
-        return torch.hstack([pts, rots.unsqueeze(-1)]), dists
+    # -------------------------------------------------------------------------------------------------
 
     def _after_reconfigure(self, options):
-        with torch.device(self.device):
-            super()._after_reconfigure(options)
-            self.scene_builder.initialize(torch.arange(self.num_envs))
-
-            if physx.is_gpu_enabled():
-                self._scene._gpu_apply_all()
-                self._scene.px.gpu_update_articulation_kinematics()
-                self._scene._gpu_fetch_all()
-
-            # links and entities for force tracking
-            force_rew_ignore_links = [
-                self.agent.finger1_link,
-                self.agent.finger2_link,
-                self.agent.tcp,
-            ]
-            self.force_articulation_link_ids = [
-                link.name
-                for link in self.agent.robot.get_links()
-                if link not in force_rew_ignore_links
-            ]
-
-            # NOTE (arth): targ obj should be same merged actor
-            obj = self.subtask_objs[0]
-
-            navigable_positions = self.scene_builder.navigable_positions
-            spawn_loc_rots = []
-            spawn_dists = []
-            for env_idx in range(self.num_envs):
-                center = obj.pose.p[env_idx, :2]
-                slr, dists = self._get_navigable_spawn_positions_with_rots_and_dists(
-                    navigable_positions[env_idx], center[0], center[1]
-                )
-                spawn_loc_rots.append(slr)
-                spawn_dists.append(dists)
-
-            num_spawn_loc_rots = torch.tensor([len(slr) for slr in spawn_loc_rots])
-            spawn_loc_rots = pad_sequence(
-                spawn_loc_rots, batch_first=True, padding_value=0
-            ).transpose(1, 0)
-            spawn_dists = pad_sequence(
-                spawn_dists, batch_first=True, padding_value=0
-            ).transpose(1, 0)
-
-            qpos = torch.tensor(
-                self.agent.RESTING_QPOS[..., None]
-                .repeat(self.num_envs, axis=-1)
-                .transpose(1, 0)
-            ).float()
-            accept_spawn_loc_rots = [[] for _ in range(self.num_envs)]
-            accept_dists = [[] for _ in range(self.num_envs)]
-            bounding_box_corners = [
-                torch.tensor([dx, dy, 0])
-                for dx, dy in itertools.product([0.1, -0.1], [0.1, -0.1])
-            ]
-            for slr_num, (slrs, dists) in tqdm(
-                enumerate(zip(spawn_loc_rots, spawn_dists)),
-                total=spawn_loc_rots.size(0),
-            ):
-
-                slrs_within_range = slr_num < num_spawn_loc_rots
-                robot_force = torch.zeros(self.num_envs)
-
-                for shift in bounding_box_corners:
-                    shifted_slrs = slrs + shift
-
-                    self.agent.controller.reset()
-                    qpos[..., 2] = shifted_slrs[..., 2]
-                    self.agent.reset(qpos)
-
-                    # ad-hoc use z-rot dim a z-height dim, set using default setting
-                    shifted_slrs[..., 2] = self.agent.robot.pose.p[..., 2]
-                    self.agent.robot.set_pose(
-                        Pose.create_from_pq(p=shifted_slrs.float())
-                    )
-
-                    if physx.is_gpu_enabled():
-                        self._scene._gpu_apply_all()
-                        self._scene.px.gpu_update_articulation_kinematics()
-                        self._scene._gpu_fetch_all()
-
-                    self._scene.step()
-
-                    robot_force += (
-                        self.agent.robot.get_net_contact_forces(
-                            self.force_articulation_link_ids
-                        )
-                        .norm(dim=-1)
-                        .sum(dim=-1)
-                    )
-
-                for i in torch.where(slrs_within_range & (robot_force < 1e-3))[0]:
-                    accept_spawn_loc_rots[i].append(slrs[i].cpu().numpy().tolist())
-                    accept_dists[i].append(dists[i].item())
-
-            self.num_spawn_loc_rots = torch.tensor(
-                [len(x) for x in accept_spawn_loc_rots]
-            )
-            self.spawn_loc_rots = pad_sequence(
-                [torch.tensor(x) for x in accept_spawn_loc_rots],
-                batch_first=True,
-                padding_value=0,
-            )
-
-            self.closest_spawn_loc_rots = torch.stack(
-                [
-                    self.spawn_loc_rots[i][torch.argmin(torch.tensor(x))]
-                    for i, x in enumerate(accept_dists)
-                ],
-                dim=0,
-            )
-
-    # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        force_rew_ignore_links = [
+            self.agent.finger1_link,
+            self.agent.finger2_link,
+            self.agent.tcp,
+        ]
+        self.force_articulation_link_ids = [
+            link.name
+            for link in self.agent.robot.get_links()
+            if link not in force_rew_ignore_links
+        ]
 
     def _initialize_episode(self, env_idx, options):
         with torch.device(self.device):
+            original_env_idx = env_idx.clone()
+
             super()._initialize_episode(env_idx, options)
             b = len(env_idx)
 
             if self.obj_randomization:
                 xyz = torch.zeros((b, 3))
-                xyz[:, :2] = torch.rand((b, 2)) * 0.2 - 0.12
+                xyz[:, :2] = torch.rand((b, 2)) * 0.2 - 0.1
                 xyz += self.subtask_objs[0].pose.p
                 xyz[..., 2] += 0.005
 
@@ -269,45 +144,123 @@ class PickSequentialTaskEnv(SequentialTaskEnv):
                 )
                 self.subtask_objs[0].set_pose(Pose.create_from_pq(xyz, qs))
 
-            self.resting_qpos = torch.tensor(self.agent.RESTING_QPOS[3:-2])
+            robot_init_p, robot_init_q, robot_init_qpos = (
+                self.agent.robot.pose.p.clone(),
+                self.agent.robot.pose.q.clone(),
+                self.agent.robot.qpos.clone(),
+            )
+            # keep going until no collisions
+            while True:
 
-            # NOTE (arth): it is assumed that scene builder spawns agent with some qpos
-            qpos = self.agent.robot.get_qpos()
+                centers = self.subtask_objs[0].pose.p[env_idx, :2]
+                navigable_positions = []
+                for env_num, center in zip(env_idx, centers):
+                    positions = torch.tensor(
+                        self.scene_builder.navigable_positions[env_num]
+                    )
+                    navigable_positions.append(
+                        positions[
+                            torch.norm(positions - center, dim=1)
+                            <= self.spawn_loc_radius
+                        ]
+                    )
+                num_navigable_positions = torch.tensor(
+                    [len(positions) for positions in navigable_positions]
+                ).int()
+                navigable_positions = pad_sequence(
+                    navigable_positions, batch_first=True, padding_value=0
+                ).float()
 
-            if self.randomize_loc:
-                idxs = torch.tensor(
-                    [
-                        torch.randint(max_idx.item(), (1,))
-                        for max_idx in self.num_spawn_loc_rots
-                    ]
+                positions_wrt_centers = navigable_positions - centers.unsqueeze(1)
+                dists = torch.norm(positions_wrt_centers, dim=-1)
+
+                rots = (
+                    torch.sign(positions_wrt_centers[..., 1])
+                    * torch.arccos(positions_wrt_centers[..., 0] / dists)
+                    + torch.pi
                 )
-                loc_rot = self.spawn_loc_rots[torch.arange(self.num_envs), idxs]
-            else:
-                loc_rot = self.closest_spawn_loc_rots
-            robot_pos = self.agent.robot.pose.p
-            robot_pos[..., :2] = loc_rot[..., :2]
-            self.agent.robot.set_pose(Pose.create_from_pq(p=robot_pos))
+                rots %= 2 * torch.pi
 
-            qpos[..., 2] = loc_rot[..., 2]
-            if self.randomize_base:
-                # base pos
+                self.resting_qpos = torch.tensor(self.agent.RESTING_QPOS[3:-2])
+
+                # NOTE (arth): it is assumed that scene builder spawns agent with some qpos
+                qpos = self.agent.robot.get_qpos()
+
+                if self.randomize_loc:
+                    low = torch.zeros_like(num_navigable_positions)
+                    high = num_navigable_positions
+                    size = env_idx.size()
+                    idxs: List[int] = (
+                        (torch.randint(2**63 - 1, size=size) % (high - low) + low)
+                        .int()
+                        .tolist()
+                    )
+                    locs = torch.stack(
+                        [
+                            positions[i]
+                            for positions, i in zip(navigable_positions, idxs)
+                        ],
+                        dim=0,
+                    )
+                    rots = torch.stack(
+                        [rot[i] for rot, i in zip(rots, idxs)],
+                        dim=0,
+                    )
+                else:
+                    raise NotImplementedError()
                 robot_pos = self.agent.robot.pose.p
-                robot_pos[..., :2] += torch.clamp(
-                    torch.normal(0, 0.04, (b, len(robot_pos[0, :2]))), -0.075, 0.075
-                ).to(self.device)
+                robot_pos[env_idx, :2] = locs
                 self.agent.robot.set_pose(Pose.create_from_pq(p=robot_pos))
-                # base rot
-                qpos[..., 2:3] += torch.clamp(
-                    torch.normal(0, 0.25, (b, len(qpos[0, 2:3]))), -0.5, 0.5
-                ).to(self.device)
-            if self.randomize_arm:
-                qpos[..., 5:6] += torch.clamp(
-                    torch.normal(0, 0.05, (b, len(qpos[0, 5:6]))), -0.1, 0.1
-                ).to(self.device)
-                qpos[..., 7:-2] += torch.clamp(
-                    torch.normal(0, 0.05, (b, len(qpos[0, 7:-2]))), -0.1, 0.1
-                ).to(self.device)
-            self.agent.reset(qpos)
+
+                qpos[env_idx, 2] = rots
+                if self.randomize_base:
+                    # base pos
+                    robot_pos = self.agent.robot.pose.p
+                    robot_pos[env_idx, :2] += torch.clamp(
+                        torch.normal(0, 0.1, robot_pos[env_idx, :2].shape), -0.2, 0.2
+                    ).to(self.device)
+                    self.agent.robot.set_pose(Pose.create_from_pq(p=robot_pos))
+                    # base rot
+                    qpos[env_idx, 2:3] += torch.clamp(
+                        torch.normal(0, 0.25, qpos[env_idx, 2:3].shape), -0.5, 0.5
+                    ).to(self.device)
+                if self.randomize_arm:
+                    qpos[env_idx, 5:6] += torch.clamp(
+                        torch.normal(0, 0.05, qpos[env_idx, 5:6].shape), -0.1, 0.1
+                    ).to(self.device)
+                    qpos[env_idx, 7:-2] += torch.clamp(
+                        torch.normal(0, 0.05, qpos[env_idx, 7:-2].shape), -0.1, 0.1
+                    ).to(self.device)
+                self.agent.reset(qpos)
+
+                robot_init_p[env_idx] = self.agent.robot.pose.p[env_idx].clone()
+                robot_init_q[env_idx] = self.agent.robot.pose.q[env_idx].clone()
+                robot_init_qpos[env_idx] = self.agent.robot.qpos[env_idx].clone()
+
+                if physx.is_gpu_enabled():
+                    self._scene._gpu_apply_all()
+                    self._scene.px.gpu_update_articulation_kinematics()
+                    self._scene._gpu_fetch_all()
+                self._scene.step()
+
+                robot_force = (
+                    self.agent.robot.get_net_contact_forces(
+                        self.force_articulation_link_ids
+                    )
+                    .norm(dim=-1)
+                    .sum(dim=-1)
+                )
+
+                self.scene_builder.initialize(original_env_idx, self.init_config_idxs)
+                self.agent.reset(robot_init_qpos)
+                self.agent.robot.set_pose(
+                    Pose.create_from_pq(p=robot_init_p, q=robot_init_q)
+                )
+
+                if torch.all((robot_force < 1e-3)[env_idx]):
+                    break
+
+                env_idx = torch.where(robot_force >= 1e-3)[0]
 
     # -------------------------------------------------------------------------------------------------
 

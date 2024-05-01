@@ -1,4 +1,5 @@
-from omegaconf import OmegaConf
+import json
+import yaml
 from dacite import from_dict
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -12,14 +13,12 @@ Task Planner Dataclasses
 
 @dataclass
 class Subtask:
+    type: str = field(init=False)
     uid: str = field(init=False)
 
     def __post_init__(self):
-        assert self.type in ["pick", "place"]
+        assert self.type in ["pick", "place", "navigate"]
         self.uid = self.type + "_" + shortuuid.ShortUUID().random(length=6)
-
-
-TaskPlan = List[Subtask]
 
 
 @dataclass
@@ -34,7 +33,10 @@ class SubtaskConfig:
 @dataclass
 class PickSubtask(Subtask):
     obj_id: str
-    type: str = "pick"
+
+    def __post_init__(self):
+        self.type = "pick"
+        super().__post_init__()
 
 
 @dataclass
@@ -51,9 +53,10 @@ class PickSubtaskConfig(SubtaskConfig):
 class PlaceSubtask(Subtask):
     obj_id: str
     goal_pos: Union[str, Tuple[float, float, float], List[Tuple[float, float, float]]]
-    type: str = "place"
 
     def __post_init__(self):
+        self.type = "place"
+        super().__post_init__()
         if isinstance(self.goal_pos, str):
             self.goal_pos = [float(coord) for coord in self.goal_pos.split(",")]
 
@@ -76,9 +79,10 @@ class NavigateSubtask(Subtask):
     goal_pos: Union[
         str, Tuple[float, float, float], List[Tuple[float, float, float]], None
     ] = None
-    type: str = "navigate"
 
     def __post_init__(self):
+        self.type = "navigate"
+        super().__post_init__()
         if isinstance(self.goal_pos, str):
             self.goal_pos = [float(coord) for coord in self.goal_pos.split(",")]
 
@@ -94,6 +98,13 @@ class NavigateSubtaskConfig(SubtaskConfig):
         assert self.ee_rest_thresh >= 0
 
 
+@dataclass
+class TaskPlan:
+    subtasks: List[Subtask]
+    build_config_name: Union[str, None] = None
+    init_config_name: Union[str, None] = None
+
+
 """
 Reading Task Plan from file
 """
@@ -101,44 +112,46 @@ Reading Task Plan from file
 
 @dataclass
 class PlanData:
-    scene_idx: int
     dataset: str
-    plan: TaskPlan
+    plans: List[TaskPlan]
 
 
-@dataclass
-class PlanMetadata:
-    scene_idx: int
-    dataset: str
-
-
-def plan_data_from_file(cfg_path: str = None) -> Tuple[TaskPlan, PlanMetadata]:
+def plan_data_from_file(cfg_path: str = None) -> PlanData:
     cfg_path: Path = Path(cfg_path)
     assert cfg_path.exists(), f"Path {cfg_path} not found"
 
-    plan_data: PlanData = OmegaConf.load(cfg_path)
+    suffix = Path(cfg_path).suffix
+    if suffix == ".json":
+        with open(cfg_path, "rb") as f:
+            plan_data = json.load(f)
+    elif suffix == ".yml":
+        with open(cfg_path) as f:
+            plan_data = yaml.safe_load(f)
+    else:
+        print(f"{suffix} not supported")
 
-    plan = []
-    for subtask in plan_data.plan:
-        if subtask.type == "pick":
-            cls = PickSubtask
-        elif subtask.type == "place":
-            cls = PlaceSubtask
-        elif subtask.type == "navigate":
-            cls = NavigateSubtask
-        else:
-            raise NotImplementedError(f"Subtask {subtask.type} not implemented yet")
-        plan.append(from_dict(data_class=cls, data=subtask))
-
-    metadata = PlanMetadata(scene_idx=plan_data.scene_idx, dataset=plan_data.dataset)
-
-    return plan, metadata
-
-
-if __name__ == "__main__":
-    print(
-        plan_data_from_file(
-            Path(__file__).parent.parent.parent.parent
-            / "task_plans/scene_6_pick_apple.yml"
+    plans = []
+    for task_plan_data in plan_data["plans"]:
+        build_config_name = task_plan_data["build_config_name"]
+        init_config_name = task_plan_data["init_config_name"]
+        subtasks = []
+        for subtask in task_plan_data["subtasks"]:
+            subtask_type = subtask["type"]
+            if subtask_type == "pick":
+                cls = PickSubtask
+            elif subtask_type == "place":
+                cls = PlaceSubtask
+            elif subtask_type == "navigate":
+                cls = NavigateSubtask
+            else:
+                raise NotImplementedError(f"Subtask {subtask_type} not implemented yet")
+            subtasks.append(from_dict(data_class=cls, data=subtask))
+        plans.append(
+            TaskPlan(
+                subtasks=subtasks,
+                build_config_name=build_config_name,
+                init_config_name=init_config_name,
+            )
         )
-    )
+
+    return PlanData(dataset=plan_data["dataset"], plans=plans)
