@@ -202,7 +202,7 @@ class ReplicaCADSceneBuilder(SceneBuilder):
                 # Certain objects, such as mats, rugs, and carpets, are on the ground and should not collide with the Fetch base
                 if np.any([x in actor_name for x in IGNORE_FETCH_COLLISION_STRS]):
                     self.disable_fetch_move_collisions(
-                        actor._bodies, disable_base_collisions=True
+                        actor, disable_base_collisions=True
                     )
 
             # ReplicaCAD also provides articulated objects
@@ -276,7 +276,7 @@ class ReplicaCADSceneBuilder(SceneBuilder):
             shared_name="scene_background",
         )
         # For the purposes of physical simulation, we disable collisions between the Fetch robot and the scene background
-        self.disable_fetch_move_collisions(self.bg._bodies)
+        self.disable_fetch_move_collisions(self.bg)
 
     def initialize(self, env_idx: torch.Tensor):
         if self.env.robot_uids == "fetch":
@@ -341,16 +341,16 @@ class ReplicaCADSceneBuilder(SceneBuilder):
 
     def disable_fetch_move_collisions(
         self,
-        bodies: List[physx.PhysxRigidDynamicComponent],
+        actor: Actor,
         disable_base_collisions=False,
     ):
-        for body in bodies:
-            for cs in body.get_collision_shapes():
-                cg = cs.get_collision_groups()
-                cg[2] |= FETCH_UNIQUE_COLLISION_BIT
-                if disable_base_collisions:
-                    cg[2] |= FETCH_BASE_COLLISION_BIT
-                cs.set_collision_groups(cg)
+        actor.set_collision_group_bit(
+            group=2, bit_idx=FETCH_UNIQUE_COLLISION_BIT, bit=1
+        )
+        if disable_base_collisions:
+            actor.set_collision_group_bit(
+                group=2, bit_idx=FETCH_BASE_COLLISION_BIT, bit=1
+            )
 
     @property
     def navigable_positions(self) -> List[np.ndarray]:

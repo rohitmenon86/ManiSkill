@@ -83,7 +83,7 @@ class SequentialTaskEnv(SceneManipulationEnv):
     )
 
     @property
-    def _default_sim_cfg(self):
+    def _default_sim_config(self):
         return SimConfig(
             spacing=50,
             gpu_memory_cfg=GPUMemoryConfig(
@@ -248,7 +248,6 @@ class SequentialTaskEnv(SceneManipulationEnv):
             name=name,
             body_type="kinematic",
             add_collision=False,
-            scene_mask=scene_mask,
         )
         if pos is not None:
             if len(pos) == self.num_envs:
@@ -564,11 +563,11 @@ class SequentialTaskEnv(SceneManipulationEnv):
     # -------------------------------------------------------------------------------------------------
 
     @property
-    def _sensor_configs(self):
+    def _default_sensor_configs(self):
         return []
 
     @property
-    def _human_render_camera_configs(self):
+    def _default_human_render_camera_configs(self):
         # # top-down camera (good for spawn generation vids)
         # room_camera_pose = look_at([0, 0, 12], [0, 0, 0])
         # room_camera_config = CameraConfig(

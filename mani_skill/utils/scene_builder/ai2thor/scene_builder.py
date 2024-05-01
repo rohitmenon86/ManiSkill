@@ -207,16 +207,16 @@ class AI2THORBaseSceneBuilder(SceneBuilder):
 
     def disable_fetch_move_collisions(
         self,
-        bodies: List[physx.PhysxRigidDynamicComponent],
+        actor: Actor,
         disable_base_collisions=False,
     ):
-        for body in bodies:
-            for cs in body.get_collision_shapes():
-                cg = cs.get_collision_groups()
-                cg[2] |= FETCH_UNIQUE_COLLISION_BIT
-                if disable_base_collisions:
-                    cg[2] |= FETCH_BASE_COLLISION_BIT
-                cs.set_collision_groups(cg)
+        actor.set_collision_group_bit(
+            group=2, bit_idx=FETCH_UNIQUE_COLLISION_BIT, bit=1
+        )
+        if disable_base_collisions:
+            actor.set_collision_group_bit(
+                group=2, bit_idx=FETCH_BASE_COLLISION_BIT, bit=1
+            )
 
     def set_actor_default_poses_vels(self):
         for actor, pose in self.actor_default_poses:
@@ -260,7 +260,7 @@ class AI2THORBaseSceneBuilder(SceneBuilder):
                 agent.robot.set_pose(
                     sapien.Pose(p=[*SCENE_IDX_TO_START_POS[self.scene_idx], 0.001])
                 )
-            self.disable_fetch_move_collisions(self.bg._bodies)
+            self.disable_fetch_move_collisions(self.bg)
         else:
             raise NotImplementedError(self.env.robot_uids)
 

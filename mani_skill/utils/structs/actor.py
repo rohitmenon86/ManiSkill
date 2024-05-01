@@ -58,9 +58,11 @@ class Actor(PhysxRigidDynamicComponentStruct[sapien.Entity]):
         entities: List[sapien.Entity],
         scene: ManiSkillScene,
         scene_idxs: torch.Tensor,
+        shared_name: str = None,
     ):
 
-        shared_name = "_".join(entities[0].name.split("_")[1:])
+        if shared_name is None:
+            shared_name = "_".join(entities[0].name.split("_")[1:])
         bodies = [
             ent.find_component_by_type(physx.PhysxRigidDynamicComponent)
             for ent in entities
