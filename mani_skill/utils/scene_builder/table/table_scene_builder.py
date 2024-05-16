@@ -43,6 +43,8 @@ class TableSceneBuilder(SceneBuilder):
         self.table_width = aabb[1, 1] - aabb[0, 1]
         self.table_height = aabb[1, 2] - aabb[0, 2]
 
+        print(self.table_length, self.table_width)
+
         self.ground = build_ground(self.scene, altitude=-self.table_height)
         self.table = table
         self._scene_objects: List[sapien.Entity] = [self.table, self.ground]
@@ -91,6 +93,20 @@ class TableSceneBuilder(SceneBuilder):
             qpos[:, -2:] = 0.04
             self.env.agent.reset(qpos)
             self.env.agent.robot.set_pose(sapien.Pose([-0.615, 0, 0]))
+        elif self.env.robot_uids == "mapper_arm":
+            # fmt: off
+            qpos = np.array(
+                [0.0, np.pi / 8, 0, -np.pi * 5 / 8, 0, np.pi * 3 / 4, -np.pi / 4]
+            )
+            # fmt: on
+            qpos = (
+                    self.env._episode_rng.normal(
+                        0, self.robot_init_qpos_noise, (b, len(qpos))
+                    )
+                    + qpos
+            )
+            self.env.agent.reset(qpos)
+            self.env.agent.robot.set_pose(sapien.Pose([-0.6, 0.0, 0]))
         elif self.env.robot_uids == "xmate3_robotiq":
             qpos = np.array(
                 [0, np.pi / 6, 0, np.pi / 3, 0, np.pi / 2, -np.pi / 2, 0, 0]

@@ -15,26 +15,25 @@ from mani_skill import ASSET_DIR
 from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.sensors.camera import CameraConfig
 from mani_skill.utils.registration import register_env
-from mani_skill.agents.robots import Panda, PandaWristCam
+from mani_skill.agents.robots import Panda, PandaWristCam, Fetch, MapperArm
 from mani_skill.utils.scene_builder.table import TableSceneBuilder
 from mani_skill.utils.building import actors
+from mani_skill.envs.utils.randomization.pose import random_quaternions
 from mani_skill.utils.building.actor_builder import ActorBuilder
 from mani_skill.utils.io_utils import load_json
 from mani_skill.utils.structs import Actor, Pose
-from mani_skill.utils import  sapien_utils
+from mani_skill.utils import  sapien_utils, common
 from mani_skill.utils.structs.types import GPUMemoryConfig, SimConfig
-#from gaussian_splat_maniskill_rl.agents.robots import MapperArm
 
-from gaussian_slam.src.entities.gaussian_slam_online import GaussianSLAMOnline
-from gaussian_slam.src.entities.mapper import Mapper
-from gaussian_slam.src.entities.datasets import CameraData
+#from gaussian_slam.src.entities.gaussian_slam_online import GaussianSLAMOnline
+#from gaussian_slam.src.entities.mapper import Mapper
+#from gaussian_slam.src.entities.datasets import CameraData
 
-@register_env("MapTableYCB-v1", max_episode_steps=100)
-
-class MapTableYCBEnv(BaseEnv):
-    SUPPORTED_ROBOTS = ["panda_wristcam", "mapper_arm"]
+@register_env("MapTable-v1", max_episode_steps=100)
+class MapTableEnv(BaseEnv):
+    SUPPORTED_ROBOTS = ["panda_wristcam", "mapper_arm", "fetch"]
     SUPPORTED_REWARD_MODES = ["sparse", "none", "dense", "normalized_dense"]
-    agent: Union[PandaWristCam, MapperArm]
+    agent: Union[PandaWristCam, MapperArm, Fetch]
     DEFAULT_EPISODE_JSON: str
     DEFAULT_ASSET_ROOT: str
     DEFAULT_MODEL_JSON: str
@@ -42,7 +41,7 @@ class MapTableYCBEnv(BaseEnv):
     def __init__(
             self,
             *args,
-            robot_uids="panda_wristcam",
+            robot_uids="mapper_arm",
             robot_init_qpos_noise=0.02,
             num_envs=1,
             reconfiguration_freq=None,
@@ -59,6 +58,12 @@ class MapTableYCBEnv(BaseEnv):
                 "`python -m mani_skill.utils.download_asset pick_clutter_ycb`."
             )
         self._episodes: List[Dict] = load_json(episode_json)
+        self.model_id = None
+        self.all_model_ids = np.array(
+            list(
+                load_json(ASSET_DIR / "assets/mani_skill2_ycb/info_pick_v0.json").keys()
+            )
+        )
         if reconfiguration_freq is None:
             if num_envs == 1:
                 reconfiguration_freq = 1
@@ -76,9 +81,9 @@ class MapTableYCBEnv(BaseEnv):
         self.hand_camera_params = self.get_sensor_params()["hand_camera"]
         rgb_intrinsics = self.hand_camera_params["intrinsic_cv"]
         self.hand_camera_config = self._sensors["hand_camera"]
-        self.camera_data = CameraData(rgb_intrinsics, self.hand_camera_config.width, self.hand_camera_config.height)
-        gslam_config = None
-        self.gslam = GaussianSLAMOnline(gslam_config)
+        #self.camera_data = CameraData(rgb_intrinsics, self.hand_camera_config.width, self.hand_camera_config.height)
+        #gslam_config = None
+        #self.gslam = GaussianSLAMOnline(gslam_config)
 
         # ...
     @property
@@ -111,12 +116,13 @@ class MapTableYCBEnv(BaseEnv):
         )
     def _load_model(self, model_id: str) -> ActorBuilder:
         raise NotImplementedError()
+
     def _load_scene(self, options: dict):
         self.scene_builder = TableSceneBuilder(
             self, robot_init_qpos_noise=self.robot_init_qpos_noise
         )
         self.scene_builder.build()
-        # ...
+
         # sample some clutter configurations
         eps_idxs = np.arange(0, len(self._episodes))
         rand_idx = torch.randperm(len(eps_idxs), device=torch.device("cpu"))
@@ -145,48 +151,20 @@ class MapTableYCBEnv(BaseEnv):
                     self.selectable_target_objects[-1].append(obj)
 
         self.all_objects = Actor.merge(all_objects, name="all_objects")
-        self.goal_site = actors.build_sphere(
-            self.scene,
-            radius=0.01,
-            color=[0, 1, 0, 1],
-            name="goal_site",
-            body_type="kinematic",
-            add_collision=False,
-        )
-        self._hidden_objects.append(self.goal_site)
-
-        self._sample_target_objects()
-
-    def _sample_target_objects(self):
-        # note this samples new target objects for every sub-scene
-        target_objects = []
-        for i in range(self.num_envs):
-            selected_obj_idxs = torch.randint(low=0, high=99999, size=(self.num_envs,))
-            selected_obj_idxs[i] = selected_obj_idxs[i] % len(
-                self.selectable_target_objects[-1]
-            )
-            target_objects.append(
-                self.selectable_target_objects[-1][selected_obj_idxs[i]]
-            )
-        self.target_object = Actor.merge(target_objects, name="target_object")
 
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
-        # using torch.device context manager to auto create tensors
-        # on CPU/CUDA depending on self.device, the device the env runs on
         with torch.device(self.device):
             b = len(env_idx)
-            # use the TableSceneBuilder to init all objects in that scene builder
-            self.table_scene.initialize(env_idx)
+            self.scene_builder.initialize(env_idx)
 
-            # here is randomization code that randomizes the x, y position
-            # of the cube we are pushing in the range [-0.1, -0.1] to [0.1, 0.1]
-            p = torch.zeros((b, 3))
-            p[..., :2] = torch.rand((b, 2)) * 0.2 - 0.1
-            p[..., 2] = 0.05
-            q = [1, 0, 0, 0]
-            obj_pose = Pose.create_from_pq(p=p, q=q)
-            self.obj.set_pose(obj_pose)
-
+            # reset objects to original poses
+            if b == self.num_envs:
+                # if all envs reset
+                self.all_objects.pose = self.all_objects.initial_pose
+            else:
+                # if only some envs reset, we unfortunately still have to do some mask wrangling
+                mask = torch.isin(self.all_objects._scene_idxs, env_idx)
+                self.all_objects.pose = self.all_objects.initial_pose[mask]
     # ...
     def evaluate(self):
         # success is achieved when the cube's xy position on the table is within the
@@ -234,9 +212,16 @@ class MapTableYCBEnv(BaseEnv):
         pose = sapien_utils.look_at([0.6, 0.7, 0.6], [0.0, 0.0, 0.35])
         return CameraConfig("render_camera", pose=pose, width=512, height=512, fov=1, near=0.01, far=5)
 
+@register_env("MapTableYCBEnv-v1", max_episode_steps=100)
+class MapTableYCBEnv(MapTableEnv):
+    DEFAULT_EPISODE_JSON = f"{ASSET_DIR}/tasks/pick_clutter/ycb_train_5k.json.gz"
+
+    def _load_model(self, model_id):
+        builder = actors.get_actor_builder(self.scene, id=f"ycb:{model_id}")
+        return builder
 def main():
     print("Hello ")
-    env = gym.make(id = "MapTableYCB", render_mode="rgb_array")
+    env = gym.make(id = "MapTableYCBEnv", render_mode="rgb_array")
     env.reset()
     while True:
         img = env.render_human()
