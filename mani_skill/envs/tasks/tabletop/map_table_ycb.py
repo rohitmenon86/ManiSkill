@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import os
+import sys
 from typing import Any, Dict, List, Union
 import numpy as np
 import yaml
@@ -10,6 +11,19 @@ import array
 import torch
 import sapien
 import gymnasium as gym
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+from mani_skill.utils.project_utils import *
+
+project_dir = find_project_root(current_dir, "splat_rl")
+print(project_dir)
+sys.path.append(project_dir)
+# Append the gaussian_slam directory to the system path
+gaussian_slam_path = os.path.join(project_dir, 'gaussian_slam')
+sys.path.append(gaussian_slam_path)
+mani_skill_path = os.path.join(project_dir, 'maniskill/mani_skill')
+sys.path.append(mani_skill_path)
+
 
 from mani_skill import ASSET_DIR
 from mani_skill.envs.sapien_env import BaseEnv
@@ -25,9 +39,10 @@ from mani_skill.utils.structs import Actor, Pose
 from mani_skill.utils import  sapien_utils, common
 from mani_skill.utils.structs.types import GPUMemoryConfig, SimConfig
 
-#from gaussian_slam.src.entities.gaussian_slam_online import GaussianSLAMOnline
-#from gaussian_slam.src.entities.mapper import Mapper
-#from gaussian_slam.src.entities.datasets import CameraData
+from gaussian_slam.src.entities.gaussian_slam_online import GaussianSLAMOnline
+from gaussian_slam.src.entities.mapper import Mapper
+from gaussian_slam.src.entities.base_dataset import CameraData
+from gaussian_slam.src.entities.common_datasets import ManiSkillCameraStream
 
 @register_env("MapTable-v1", max_episode_steps=100)
 class MapTableEnv(BaseEnv):
@@ -77,14 +92,6 @@ class MapTableEnv(BaseEnv):
             **kwargs,
         )
         self.ycb_objects_model_ids = None
-
-        self.hand_camera_params = self.get_sensor_params()["hand_camera"]
-        rgb_intrinsics = self.hand_camera_params["intrinsic_cv"]
-        self.hand_camera_config = self._sensors["hand_camera"]
-        #self.camera_data = CameraData(rgb_intrinsics, self.hand_camera_config.width, self.hand_camera_config.height)
-        #gslam_config = None
-        #self.gslam = GaussianSLAMOnline(gslam_config)
-
         # ...
     @property
     def _default_sim_config(self):
@@ -165,7 +172,16 @@ class MapTableEnv(BaseEnv):
                 # if only some envs reset, we unfortunately still have to do some mask wrangling
                 mask = torch.isin(self.all_objects._scene_idxs, env_idx)
                 self.all_objects.pose = self.all_objects.initial_pose[mask]
-    # ...
+
+    def _initalize_gslam(self):
+        self.hand_camera_params = self.get_sensor_params()["hand_camera"]
+        rgb_intrinsics = self.hand_camera_params["intrinsic_cv"]
+        self.hand_camera_config = self._sensors["hand_camera"]
+        self.camera_data = CameraData(rgb_intrinsics, self.hand_camera_config.width, self.hand_camera_config.height)
+        gslam_config = os.path.join(gaussian_slam_path, "configs/maniskill/maniskill_camera_stream.yaml")
+        self.gslam = GaussianSLAMOnline(gslam_config)
+
+
     def evaluate(self):
         # success is achieved when the cube's xy position on the table is within the
         # goal region's area (a circle centered at the goal region's xy position)
